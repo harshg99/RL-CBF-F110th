@@ -1,4 +1,4 @@
-# Lab 5: SLAM and Pure Pursuit
+# Project: RL with CBF learnt from Pure Pursuit Data
 
 ## I. Learning Goals
 
