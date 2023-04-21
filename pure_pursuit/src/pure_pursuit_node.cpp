@@ -214,7 +214,6 @@ public:
         }
 
 
-
         ///////////////////////////////// WAYPOINT MARKERS END////////////////////////////////////////////
         /////////////////////////////////////////////////// TODO: find the current waypoint to track using methods mentioned in lecture
 
@@ -267,8 +266,6 @@ public:
         }
 
 
-
-
         //now lets do second speed lookahead point off of the first lookahead point
         unsigned int speed_lookahead_point_index = lookahead_point_index;
         double speed_lookahead_point_distance = 0.0;
@@ -319,8 +316,6 @@ public:
         // //get the angle between the car and the lookahead point
         // double goalPointX_car = positions[lookahead_point_index][0] - car_x;
         // double goalPointY_car = positions[lookahead_point_index][1] - car_y;
-
-
 
 
         double goalPointX_map = positions[lookahead_point_index][0];
@@ -485,7 +480,7 @@ _
         pub_drive->publish(drive_msg);
     }
 
-    void PurePursuit::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg){
+    void PurePursuit::pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr pose_msg){
                 
         double car_x = pose_msg->pose.position.x;
         double car_y = pose_msg->pose.position.y;
@@ -498,13 +493,8 @@ _
     } //stub code had &pose_msg, the & caused build errors. also said ConstPtr instead of ConstSharedPtr, which also made errors
 
 
-    void pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) //stub code had &pose_msg, the & caused build errors. also said ConstPtr instead of ConstSharedPtr, which also made errors
-    //void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr pose_msg)
+    void PurePursuit::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg)
     {
-
-
-
-
         double car_x = pose_msg->pose.pose.position.x;
         double car_y = pose_msg->pose.pose.position.y;
 
