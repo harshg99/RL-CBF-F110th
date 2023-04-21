@@ -59,7 +59,12 @@ class DataCollection(Node):
         self.waypoints = np.array(positions)
         
 
-    
+    def collect_safe_data():
+        pass
+
+    def collect_unsafe_data():
+        pass
+
    # defines the controller for the      
     def pose_callback(self, pose_msg):
         # TODO: find the current waypoint to track using methods mentioned in lecture

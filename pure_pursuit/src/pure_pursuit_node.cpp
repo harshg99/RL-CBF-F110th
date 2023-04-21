@@ -70,6 +70,7 @@ private:
     double curvature_thresh = 0.1;
     double acceleration_lookahead_distance = 5.0;
     double accel_gain = 2.0;
+    double pf = false;
 
 
 public:
@@ -86,7 +87,7 @@ public:
         this->declare_parameter("curvature_thresh", 0.1);
         this->declare_parameter("acceleration_lookahead_distance", 5.0);
         this->declare_parameter("accel_gain", 5.0);
-
+        this->declare_parameter("pf", false); 
         
 
         this->lookahead_distance = this->get_parameter("lookahead_distance").as_double();
@@ -98,12 +99,19 @@ public:
         this->curvature_thresh = this->get_parameter("curvature_thresh").as_double();
         this->acceleration_lookahead_distance = this->get_parameter("acceleration_lookahead_distance").as_double();
         this->accel_gain = this->get_parameter("accel_gain").as_double();
+        this->pf = this->get_parameter("pf").as_bool();
 
         // TODO: create ROS subscribers and publishers
 
+
         pub_marker = this->create_publisher<visualization_msgs::msg::MarkerArray>("marker_array", 10);
-        //sub_pose = this->create_subscription<nav_msgs::msg::Odometry>("/ego_racecar/odom", 100 , std::bind(&PurePursuit::pose_callback, this, _1));
-        sub_pose = this->create_subscription<geometry_msgs::msg::PoseStamped>("/pf/viz/inferred_pose", 100 , std::bind(&PurePursuit::pose_callback, this, _1));
+        if(this->pf){
+            sub_pose = this->create_subscription<geometry_msgs::msg::PoseStamped>("/pf/viz/inferred_pose", 100 , std::bind(&PurePursuit::pose_callback, this, _1));
+        }else{
+            sub_pose = this->create_subscription<nav_msgs::msg::Odometry>("/ego_racecar/odom", 100 , std::bind(&PurePursuit::pose_callback, this, _1));
+        }
+       
+        
 
         pub_drive = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("drive", 10);
 
@@ -152,19 +160,10 @@ public:
         }
     }
 
-    void pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) //stub code had &pose_msg, the & caused build errors. also said ConstPtr instead of ConstSharedPtr, which also made errors
-    //void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr pose_msg)
-    {
-
-
+    void compute_control(double car_x, double car_y, tf2::Quaternion car_orientation){
         
-        // double car_x = pose_msg->pose.position.x;
-        // double car_y = pose_msg->pose.position.y;
-
-        double car_x = pose_msg->pose.pose.position.x;
-        double car_y = pose_msg->pose.pose.position.y;
-
-        RCLCPP_INFO(this->get_logger(), "pose_callback");
+        
+        RCLCPP_INFO(this->get_logger(), "computing control");
         //////////////////////////////////////// WAYPOINT MARKERS ////////////////////////////////////////
 
         //create the top level marker array
@@ -344,29 +343,15 @@ public:
             marker_array.markers[3].color.b = 0.5;
             marker_array.markers[3].color.a = 1.0;
         }
-        
-
-
         /////////////////////////////////////////////////// TODO: transform goal point to vehicle frame of reference
 
         //get car_yaw from odometry message
         double car_roll = 0.0;
         double car_pitch = 0.0;
         double car_yaw = 0.0;
-
-        // get roll pitch and yaw from quaternion
-        tf2::Quaternion q(
-            pose_msg->pose.pose.orientation.x,
-            pose_msg->pose.pose.orientation.y,
-            pose_msg->pose.pose.orientation.z,
-            pose_msg->pose.pose.orientation.w);
-        // tf2::Quaternion q(
-        //     pose_msg->pose.orientation.x,
-        //     pose_msg->pose.orientation.y,
-        //     pose_msg->pose.orientation.z,
-        //     pose_msg->pose.orientation.w);
-        tf2::Matrix3x3 m(q);
+        tf2::Matrix3x3 m(car_orientation);
         m.getRPY(car_roll, car_pitch, car_yaw);
+               // get roll pitch and yaw from quaternion
 
 
         //find homogeneous transform from map frame to vehicle frame
@@ -384,7 +369,7 @@ public:
         T_map_goal << 1, 0, 0, goalPointX_map,
             0, 1, 0, goalPointY_map,
             0, 0, 1, 0,
-            0, 0, 0, 1;
+            0, 0, 0, 1;_
         
         //find the homogeneous transform from vehicle frame to goal point
         Eigen::Matrix4d T_vehicle_goal = T_vehicle_map * T_map_goal;
@@ -409,14 +394,7 @@ public:
             marker_array.markers[4].color.b = 0.0;
             marker_array.markers[4].color.a = 1.0;
         }
-
-
-
-
-        //convert the speed point to the vehicle frame of reference
-
-
-
+        
         double speedPointX_map = positions[speed_lookahead_point_index][0];
         double speedPointY_map = positions[speed_lookahead_point_index][1];
 
@@ -433,10 +411,7 @@ public:
 
         //to check, find transformation from map to speed point using car to speed point
         Eigen::Matrix4d T_map_speed_check = T_map_vehicle * T_vehicle_speed;
-
-         //find heading of speed point in car frame of reference
-        double speed_heading = atan2(T_vehicle_speed(1, 3), T_vehicle_speed(0, 3));
-
+_
         //map the magnitude of the speed point heading to range [0, 1]
         double brake_amount = this->brake_gain * abs(speed_heading);
 
@@ -508,8 +483,38 @@ public:
         drive_msg.drive.speed = velocity - brake_amount;
         //publish the drive message
         pub_drive->publish(drive_msg);
+    }
+
+    void PurePursuit::pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg){
+                
+        double car_x = pose_msg->pose.position.x;
+        double car_y = pose_msg->pose.position.y;
+        tf2::Quaternion q(
+            pose_msg->pose.orientation.x,
+            pose_msg->pose.orientation.y,
+            pose_msg->pose.orientation.z,
+            pose_msg->pose.orientation.w);
+        this->compute_control(car_x,car_y,q);
+    } //stub code had &pose_msg, the & caused build errors. also said ConstPtr instead of ConstSharedPtr, which also made errors
 
 
+    void pose_callback(const nav_msgs::msg::Odometry::ConstSharedPtr pose_msg) //stub code had &pose_msg, the & caused build errors. also said ConstPtr instead of ConstSharedPtr, which also made errors
+    //void pose_callback(const geometry_msgs::msg::PoseStamped::ConstSharedPtr pose_msg)
+    {
+
+
+
+
+        double car_x = pose_msg->pose.pose.position.x;
+        double car_y = pose_msg->pose.pose.position.y;
+
+        tf2::Quaternion q(
+            pose_msg->pose.pose.orientation.x,
+            pose_msg->pose.pose.orientation.y,
+            pose_msg->pose.pose.orientation.z,
+            pose_msg->pose.pose.orientation.w);
+        
+        this->compute_control(car_x,car_y,q);
     }
 
     ~PurePursuit() {} // destructor, which is called when the object is destroyed,
