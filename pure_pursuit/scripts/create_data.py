@@ -6,7 +6,9 @@ from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 from visualization_msgs.msg import Marker, MarkerArray
 import csv
+from pure_pursuit_node import PurePursuit
 from scipy.spatial.transform import Rotation as R
+import os
 # TODO CHECK: include needed ROS msg type headers and lib
 
 def within_bounds(x,y):
@@ -59,7 +61,7 @@ def within_bounds(x,y):
         d4 = abs(acl4*x + bcl4*y - ccl4) / ((acl4**2 + bcl4**2)**0.5)
 
         ## now check if the point is within +- 0.25m of any of the centerlines
-        withinCenterlines = (d1 <= maxDistance) or (d2 <= maxDistance) or (d3 <= maxDistance) or (d4 <= maxDistance)`
+        withinCenterlines = (d1 <= maxDistance) or (d2 <= maxDistance) or (d3 <= maxDistance) or (d4 <= maxDistance)
 
         return withinOutterTrack and withinCenterlines
     
@@ -133,7 +135,47 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_samples', type=int, default=1000)
     parser.add_argument('--bounds_lower', type=int, default=-20)
-    parser.add_argument('--bounds_upper', type=str, default='data.csv')  
+    parser.add_argument('--bounds_upper', type=int, default=20)
+    parser.add_argument('--vel_lower', type=int, default=0.0)
+    parser.add_argument('--vel_upper', type=int, default=4.5)
+    parser.add_argument('--filename', type=str, default='waypoints.csv') 
+    parser.add_argument('--save_dir', type=str, default='trajectory_data/')
+    args = parser.parse_args()
+    return args
 
-def generate_data():
-    sample_bound
+def generate_data(args):
+    
+    pure_pursuit_query = PurePursuit(args.filename)
+    
+    safe_data = {states: [], controls: []}
+    unsafe_data = {states:[], controls: []}
+    if not os.path.exists(args.save_dir):
+        os.makedirs(args.save_dir)
+    for i in range(args.num_samples):
+        print(i)
+        x = np.random.uniform(args.bounds_lower, args.bounds_upper)
+        y = np.random.uniform(args.bounds_lower, args.bounds_upper)
+        vel = np.random.uniform(args.vel_lower, args.vel_upper)
+        yaw = np.random.uniform(-np.pi, np.pi)
+        
+        orientation = R.from_euler('z', yaw).as_quat()
+
+        
+        v_con, theta_con = pure_pursuit_query.compute_control(x,y,orientation)
+
+        safe = within_bounds(x, y) and ttc_bounds(x,y,yaw,vel)
+
+        if trajectory is not None:
+            if safe:
+                safe_data[states].append([x,y,vel,yaw])
+                safe_data[controls].append([v_con, theta_con])
+            else:
+                unsafe_data[states].append([x,y,vel,yaw])
+                unsafe_data[controls].append([v_con, theta_con])
+    
+    np.save(args.save_dir + '/safe_trajectory.npy', safe_data)
+    np.save(args.save_dir + '/unsafe_trajectory.npy', unsafe_data)
+
+if __name__ == '__main__':
+    args = parse_args()
+    generate_data(args)
