@@ -1,0 +1,12 @@
+# Standard
+numpy
+matplotlib
+seaborn
+pandas
+scipy
+
+# Learning libraries
+torch
+pytorch-lightning
+
+cvxpy==1.1.19
