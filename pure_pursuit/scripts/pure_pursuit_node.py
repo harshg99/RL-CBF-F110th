@@ -10,7 +10,7 @@ import csv
 from scipy.spatial.transform import Rotation as R
 # TODO CHECK: include needed ROS msg type headers and libraries
 
-class DataCollection(Node):
+class PurePursuit(Node):
     """ 
     Implement Pure Pursuit on the car
     This is just a template, you are free to implement your own node!
@@ -59,118 +59,7 @@ class DataCollection(Node):
         self.waypoints = np.array(positions)
         
 
-    def collect_safe_data():
-        pass
-
-    def collect_unsafe_data():
-        pass
-
-    def within_bounds(x,y):
-
-        ## below are the coefficients a, b, and c for all of the outer track lines L and centerlines CL for standard form ax + by = c
-
-        al1 = -2.2184
-        bl1 = 1
-        cl1 = 38.0722
-
-        acl1 = -2.2824
-        bcl1 = 1
-        ccl1 = 36.6968
-
-        al2 = 0.4424
-        bl2 = 1
-        cl2 = 10.6387
-
-        acl2 = 0.4424
-        bcl2 = 1
-        ccl2 = 9.8021
-
-        al3 = -2.4726
-        bl3 = 1
-        cl3 = -24.8661
-
-        acl3 = -2.3683
-        bcl3 = 1
-        ccl3 = -21.6509
-
-        al4 = 0.4513
-        bl4 = 1
-        cl4 = -0.4159
-
-        acl4 = 0.4484
-        bcl4 = 1
-        ccl4 = 0.4599
-
-        ## below is the max acceptable distance from the centerlines
-        maxDistance = 0.2
-
-        ## first, check if the point is within the outer track
-        withinOutterTrack = (al1*x + bl1*y <= cl1) and (al2*x + bl2*y <= cl2) and (al3*x + bl3*y >= cl3) and (al4*x + bl4*y >= cl4)
-
-
-        ## now calculate the distances from the point to each of the four centerlines
-        d1 = abs(acl1*x + bcl1*y - ccl1) / ((acl1**2 + bcl1**2)**0.5)
-        d2 = abs(acl2*x + bcl2*y - ccl2) / ((acl2**2 + bcl2**2)**0.5)
-        d3 = abs(acl3*x + bcl3*y - ccl3) / ((acl3**2 + bcl3**2)**0.5)
-        d4 = abs(acl4*x + bcl4*y - ccl4) / ((acl4**2 + bcl4**2)**0.5)
-
-        ## now check if the point is within +- 0.25m of any of the centerlines
-        withinCenterlines = (d1 <= maxDistance) or (d2 <= maxDistance) or (d3 <= maxDistance) or (d4 <= maxDistance)`
-
-        return withinOutterTrack and withinCenterlines
-    
-    def ttc_bounds(x,y, yaw, vel):
-        ## below are the coefficients a, b, and c for all of the outer track lines L and centerlines CL for standard form ax + by = c
-
-        al1 = -2.2184
-        bl1 = 1
-        cl1 = 38.0722
-
-        acl1 = -2.2824
-        bcl1 = 1
-        ccl1 = 36.6968
-
-        al2 = 0.4424
-        bl2 = 1
-        cl2 = 10.6387
-
-        acl2 = 0.4424
-        bcl2 = 1
-        ccl2 = 9.8021
-
-        al3 = -2.4726
-        bl3 = 1
-        cl3 = -24.8661
-
-        acl3 = -2.3683
-        bcl3 = 1
-        ccl3 = -21.6509
-
-        al4 = 0.4513
-        bl4 = 1
-        cl4 = -0.4159
-
-        acl4 = 0.4484
-        bcl4 = 1
-        ccl4 = 0.4599
-
-        ## below is the max acceptable distance from the centerlines
-        maxTTC = 0.2
-
-        # compute the distance to each of the centerlines
-
-        
-        ## now calculate the distances from the point to each of the four centerlines
-        d1 = (acl1*x + bcl1*y - ccl1 / acl1*np.cos(theta) + bcl1*np.sin(theta))
-        d2 = (acl2*x + bcl2*y - ccl2 / acl2*np.cos(theta) + bcl2*np.sin(theta))
-        d3 = (acl3*x + bcl3*y - ccl1 / acl3*np.cos(theta) + bcl3*np.sin(theta))
-        d4 = (acl4*x + bcl4*y - ccl1 / acl4*np.cos(theta) + bcl4*np.sin(theta))
-
-   # defines the controller for the      
-    def pose_callback(self, pose_msg):
-        # TODO: find the current waypoint to track using methods mentioned in lecture
-        x = pose_msg.pose.position.x
-        y = pose_msg.pose.position.y
+    def compute_control(x,y,orientation):
         pos = np.array([[x, y]])
         
         
@@ -197,10 +86,10 @@ class DataCollection(Node):
         speed_goal_point = self.waypoints[speed_lookahead_idx]
         accel_goal_point = self.waypoints[accel_lookahead_idx]
         
-        orientation_q = [pose_msg.pose.orientation.x, 
-                        pose_msg.pose.orientation.y, 
-                        pose_msg.pose.orientation.z, 
-                        pose_msg.pose.orientation.w]
+        orientation_q = [orientation.x, 
+                        orientation.y, 
+                        orientation.z, 
+                        orientation.w]
 
 
         orientation_matrix = R.from_quat(orientation_q).inv().as_matrix()
@@ -224,7 +113,18 @@ class DataCollection(Node):
         
         velocity = velocity - brake_amount
         steer = atan(self.wheel_base*curvature)
-        
+        return velocity, steer
+
+   
+
+   # defines the controller for the      
+    def pose_callback(self, pose_msg):
+        # TODO: find the current waypoint to track using methods mentioned in lecture
+        x = pose_msg.pose.position.x
+        y = pose_msg.pose.position.y
+        orientation = pose_msg.pose.orientation
+
+        velocity, steer = self.compute_control(x,y,orientation)
         drive_msg = AckermannDriveStamped()
         drive_msg.header.frame_id = 'base_link'
         drive_msg.drive.speed = velocity -  brake_amount
