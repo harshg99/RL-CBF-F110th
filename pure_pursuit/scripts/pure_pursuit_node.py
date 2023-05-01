@@ -15,7 +15,7 @@ class PurePursuit(Node):
     Implement Pure Pursuit on the car
     This is just a template, you are free to implement your own node!
     """
-    def __init__(self):
+    def __init__(self, filename = None):
         super().__init__('pure_pursuit_node')
         self.declare_parameter('lookahead_distance', 1.0)
         self.declare_parameter('velocity', 3.0)
@@ -41,8 +41,10 @@ class PurePursuit(Node):
         self.pub_marker = self.create_publisher(MarkerArray, "marker_array", 10)
         self.sub_pose = self.create_subscription(PoseStamped, "pf/viz/inferred_pose", self.pose_callback, 10)
         self.pub_drive = self.create_publisher(AckermannDriveStamped, "drive", 10)
-        filename = "src/sparse_straights_interpolated.csv"
-
+        
+        if filename is None:
+            filename = "src/sparse_straights_interpolated.csv"
+    
         #load the csv file data and store the values in a numpy array
         
         positions = []
@@ -86,11 +88,7 @@ class PurePursuit(Node):
         speed_goal_point = self.waypoints[speed_lookahead_idx]
         accel_goal_point = self.waypoints[accel_lookahead_idx]
         
-        orientation_q = [orientation.x, 
-                        orientation.y, 
-                        orientation.z, 
-                        orientation.w]
-
+        orientation_q = deepcopy(orientation)
 
         orientation_matrix = R.from_quat(orientation_q).inv().as_matrix()
         goal_point_4d = np.concatenate((goal_point, [0, 1]), axis = 0)
@@ -122,8 +120,10 @@ class PurePursuit(Node):
         # TODO: find the current waypoint to track using methods mentioned in lecture
         x = pose_msg.pose.position.x
         y = pose_msg.pose.position.y
-        orientation = pose_msg.pose.orientation
-
+        orientation = [ pose_msg.pose.orientation.x, 
+                        pose_msg.pose.orientation.y, 
+                        pose_msg.pose.orientation.z, 
+                        pose_msg.pose.orientation.w]
         velocity, steer = self.compute_control(x,y,orientation)
         drive_msg = AckermannDriveStamped()
         drive_msg.header.frame_id = 'base_link'
