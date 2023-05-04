@@ -137,13 +137,14 @@ class F110System:
 
 
 
-    def generate_data(self, args):
+    def generate_data(self, num_samples = None):
         
-        pure_pursuit_query = PurePursuit(args.filename)
+        pure_pursuit_query = PurePursuit(self.args.filename)
         goal = pure_pursuit_query.goal_point
         start_point = pure_pursuit_query.start_point
 
-
+        if num_samples is None:
+            num_samples = self.args.num_samples
 
         al3 = -2.4726
         bl3 = 1
@@ -172,9 +173,9 @@ class F110System:
 
         safe_data = {states: [], controls: []}
         unsafe_data = {states:[], controls: []}
-        if not os.path.exists(args.save_dir):
-            os.makedirs(args.save_dir)
-        for i in range(args.num_samples):
+        if not os.path.exists(self.args.save_dir):
+            os.makedirs(self.args.save_dir)
+        for i in range(num_samples):
             print(i)
             valid = False
             while(not valid):
@@ -189,7 +190,6 @@ class F110System:
             
             orientation = R.from_euler('z', yaw).as_quat()
 
-            
             v_con, theta_con = pure_pursuit_query.compute_control(x,y,orientation)
 
             safe = within_bounds(x, y) and ttc_bounds(x,y,yaw,vel)
@@ -205,10 +205,16 @@ class F110System:
         metadata = np.array({'goal': goal, 'start_point': start_point})
         return safe_data, unsafe_data, metadata
 
-    def save_data(args, safe_data, unsafe_data, metadata):
-        np.save(args.save_dir + '/safe_trajectory.npy', safe_data, allow_pickle=True)
-        np.save(args.save_dir + '/unsafe_trajectory.npy', unsafe_data, allow_pickle= True)
-        np.save(args.save_dir + '/metadata.npy', metadata, allow_pickle=True)
+    def save_data(safe_data, unsafe_data, metadata):
+        np.save(self.args.save_dir + '/safe_trajectory.npy', safe_data, allow_pickle=True)
+        np.save(self.args.save_dir + '/unsafe_trajectory.npy', unsafe_data, allow_pickle= True)
+        np.save(self.args.save_dir + '/metadata.npy', metadata, allow_pickle=True)
+    
+    def load_data():
+        safe_data = np.load(self.args.save_dir + '/safe_trajectory.npy', allow_pickle=True)
+        unsafe_data = np.load(self.args.save_dir + '/unsafe_trajectory.npy', allow_pickle=True)
+        metadata = np.load(self.args.save_dir + '/metadata.npy', allow_pickle=True)
+        return safe_data, unsafe_data, metadata
 
 def parse_args():
     import argparse
