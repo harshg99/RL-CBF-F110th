@@ -19,9 +19,9 @@ class PurePursuit(Node):
     """
     def __init__(self, filename = None):
         super().__init__('pure_pursuit_node')
-        self.declare_parameter('lookahead_distance', 1.2)
+        self.declare_parameter('lookahead_distance', 0.8)
         self.declare_parameter('velocity', 3.6)
-        self.declare_parameter('speed_lookahead_distance', 2.0)
+        self.declare_parameter('speed_lookahead_distance', 1.2)
         self.declare_parameter('brake_gain', 1.0)
         self.declare_parameter('wheel_base', 0.33)
         self.declare_parameter('visualize', False)
@@ -46,7 +46,7 @@ class PurePursuit(Node):
         self.pub_drive = self.create_publisher(AckermannDriveStamped, "drive", 10)
         
         if filename is None:
-            filename = "/sim_ws/src/pure_pursuit/src/sparse_straights_interpolated.csv"
+            filename = "/sim_ws/src/pure_pursuit/src/sparse_straights_interpolated_expert.csv"
     
         #load the csv file data and store the values in a numpy array
         
@@ -75,21 +75,47 @@ class PurePursuit(Node):
         
         #lookahead for goals
         #print(self.lookahead_distance)
+
+        if closest_idx == self.waypoints.shape[0] - 1:
+            closest_idx = 0
+        
         lookahead_points = np.where(np.linalg.norm(self.waypoints - pos, axis=1) < self.lookahead_distance)[0]
         #print(lookahead_points)
-        lookahead_points = lookahead_points[np.where(lookahead_points > closest_idx)[0]]
-        lookahead_idx = lookahead_points.max()
+        # check for wrap around
+        if lookahead_points.max() == self.waypoints.shape[0] - 1 \
+            and lookahead_points.min() == 0:
+            lookahead_points_inv = np.where(np.linalg.norm(self.waypoints - pos, axis=1) > self.lookahead_distance)[0]
+            lookahead_idx = lookahead_points_inv.min()
+        else:
+            lookahead_points = lookahead_points[np.where(lookahead_points > closest_idx)[0]]
+            lookahead_idx = lookahead_points.max()
 
+        if lookahead_idx == self.waypoints.shape[0] - 1:
+            lookahead_idx = 0
         #lookahead for seped reduction
         speed_lookahead_points = np.where(np.linalg.norm(self.waypoints - pos, axis=1) < self.speed_lookahead_distance)[0]
-        speed_lookahead_points = speed_lookahead_points[np.where(speed_lookahead_points > lookahead_idx)[0]]
-        speed_lookahead_idx = speed_lookahead_points.max()
-
+        if speed_lookahead_points.max() == self.waypoints.shape[0] - 1 \
+            and speed_lookahead_points.min() == 0:
+            speed_lookahead_points_inv = np.where(np.linalg.norm(self.waypoints - pos, axis=1) > self.speed_lookahead_distance)[0]
+            speed_lookahead_idx = speed_lookahead_points_inv.min()
+        else:
+            speed_lookahead_points = speed_lookahead_points[np.where(speed_lookahead_points > lookahead_idx)[0]]
+            speed_lookahead_idx = speed_lookahead_points.max()
+        
+        if speed_lookahead_idx == self.waypoints.shape[0] - 1:
+            speed_lookahead_idx = 0
         #lookahaead for acceleration
         accel_lookahead_points = np.where(np.linalg.norm(self.waypoints - pos, axis=1) < self.acceleration_lookahead_distance)[0]
-        accel_lookahead_points = accel_lookahead_points[np.where(accel_lookahead_points > speed_lookahead_idx)[0]]
-        accel_lookahead_idx = accel_lookahead_points.max()
-        
+        if accel_lookahead_points.max() == self.waypoints.shape[0] - 1 \
+            and accel_lookahead_points.min() == 0:
+            accel_lookahead_points_inv = np.where(np.linalg.norm(self.waypoints - pos, axis=1) > self.acceleration_lookahead_distance)[0]
+            accel_lookahead_idx = accel_lookahead_points_inv.min()
+        else:
+            accel_lookahead_points = accel_lookahead_points[np.where(accel_lookahead_points > speed_lookahead_idx)[0]]
+            accel_lookahead_idx = accel_lookahead_points.max()
+        if accel_lookahead_idx == self.waypoints.shape[0] - 1:
+            accel_lookahead_idx = 0
+
         # COmpute and transform all the ppoitns in the car's frame of reference
         goal_point = self.waypoints[lookahead_idx]
         speed_goal_point = self.waypoints[speed_lookahead_idx]
