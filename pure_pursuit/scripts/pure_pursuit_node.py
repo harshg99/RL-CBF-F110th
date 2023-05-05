@@ -19,7 +19,7 @@ class PurePursuit(Node):
     """
     def __init__(self, filename = None):
         super().__init__('pure_pursuit_node')
-        self.declare_parameter('lookahead_distance', 0.8)
+        self.declare_parameter('lookahead_distance', 1.0)
         self.declare_parameter('velocity', 3.6)
         self.declare_parameter('speed_lookahead_distance', 1.2)
         self.declare_parameter('brake_gain', 1.0)
@@ -46,7 +46,7 @@ class PurePursuit(Node):
         self.pub_drive = self.create_publisher(AckermannDriveStamped, "drive", 10)
         
         if filename is None:
-            filename = "/sim_ws/src/pure_pursuit/src/sparse_straights_interpolated_expert.csv"
+            filename = "/sim_ws/src/pure_pursuit/scripts/raceline_centre.csv"
     
         #load the csv file data and store the values in a numpy array
         
@@ -64,6 +64,8 @@ class PurePursuit(Node):
         
         self.waypoints = np.array(positions)
         print(f'Processed {line_count} lines.')
+        self.start_point = self.waypoints[0]
+        self.goal_point = self.waypoints[-1]
         
 
     def compute_control(self, x, y,orientation):
