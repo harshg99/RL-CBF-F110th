@@ -51,25 +51,26 @@ class F110DynamicsModel:
         '''
 
         state = x
+
         f,g = self.vehicle_dynamics_ks(
             state,
-            np.array([sv, accl]),
-            self.params['mu'],
-            self.params['C_Sf'],
-            self.params['C_Sr'],
-            self.params['lf'],
-            self.params['lr'],
-            self.params['h'],
-            self.params['m'],
-            self.params['I'],
-            self.params['s_min'],
-            self.params['s_max'],
-            self.params['sv_min'],
-            self.params['sv_max'],
-            self.params['v_switch'],
-            self.params['a_max'],
-            self.params['v_min'],
-            self.params['v_max'])
+            np.array(u),
+            self.vehicle_params['mu'],
+            self.vehicle_params['C_Sf'],
+            self.vehicle_params['C_Sr'],
+            self.vehicle_params['lf'],
+            self.vehicle_params['lr'],
+            self.vehicle_params['h'],
+            self.vehicle_params['m'],
+            self.vehicle_params['I'],
+            self.vehicle_params['s_min'],
+            self.vehicle_params['s_max'],
+            self.vehicle_params['sv_min'],
+            self.vehicle_params['sv_max'],
+            self.vehicle_params['v_switch'],
+            self.vehicle_params['a_max'],
+            self.vehicle_params['v_min'],
+            self.vehicle_params['v_max'])
         
         
         return f,g
@@ -152,8 +153,15 @@ class F110DynamicsModel:
         """
         # wheelbase
         lwb = lf + lr
+        
+        accl, sv = pid(u_init[0], u_init[1], x[3], x[2],
+         self.vehicle_params['sv_max'], self.vehicle_params['a_max'], 
+         self.vehicle_params['v_max'], self.vehicle_params['v_min'])
+
         # constraints
-        u = np.array([steering_constraint(x[2], u_init[0], s_min, s_max, sv_min, sv_max), accl_constraints(x[3], u_init[1], v_switch, a_max, v_min, v_max)])
+        u = np.array([steering_constraint(x[2],sv, s_min, s_max, sv_min, sv_max), 
+        accl_constraints(x[3], accl, v_switch, a_max, v_min, v_max)])
+        
         u = torch.tensor(u, dtype = torch.float32)
 
         # system dynamics
