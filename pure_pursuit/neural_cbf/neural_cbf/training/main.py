@@ -10,33 +10,25 @@ from neural_cbf.datamodules.episodic_datamodule import (
     EpisodicDataModule,
 )
 
-from neural_cbf_controller import NeuralCBFController
+from neural_cbf.neural_cbf import NeuralCBFController
 from train_dynamics import DynamicsModel
-from neural_cbf.systems import KSCar
-
-controller_period = 0.01
-simulation_dt = 0.001
-
+from neural_cbf.systems import InvertedPendulum
+from neural_cbf.models import Policy, CBFNet
 
 def main(args):
-    nominal_params = {
-        "psi_ref": 1.0,
-        "v_ref": 10.0,
-        "a_ref": 0.0,
-        "omega_ref": 0.0,
-    }
-    simulator = KSCar(
-        nominal_params, dt=simulation_dt, controller_dt=controller_period
+    nominal_params = {"m": 1.0, "L": 1.0, "b": 0.01}
+    controller_period = 0.05
+    simulation_dt = 0.01
+    
+    simulator = InvertedPendulum(
+        nominal_params,
     )
-
-    # Initialize the DataModule
+    
     initial_conditions = [
-        (-0.1, 0.1),  # sxe
-        (-0.1, 0.1),  # sye
-        (-0.1, 0.1),  # delta
-        (-0.1, 0.1),  # ve
-        (-0.1, 0.1),  # psi_e
+        (-np.pi / 2, np.pi / 2),  # theta
+        (-1.0, 1.0),  # theta_dot
     ]
+    
     data_module = EpisodicDataModule(
         simulator,
         initial_conditions,
@@ -49,31 +41,25 @@ def main(args):
         quotas={"safe": 0.4, "unsafe": 0.2, "goal": 0.2},
     )
     
-    nominal_params = {
-        "psi_ref": 1.0,
-        "v_ref": 10.0,
-        "a_ref": 0.0,
-        "omega_ref": 0.0,
-    }
-    car_model = KSCar(
-        nominal_params, dt=simulation_dt, controller_dt=controller_period
-    )
     
     # Initialize the controller
     dir_path = "/home/ny0221/neural_cbf/neural_cbf/training/checkpoints/"
-    nn_dynamics = DynamicsModel.load_from_checkpoint(dir_path + "model.ckpt", n_dims=simulator.n_dims, n_controls=simulator.n_controls, control_limits=simulator.control_limits)    
+    nn_dynamics = DynamicsModel.load_from_checkpoint(dir_path + "pendulum.ckpt", n_dims=simulator.n_dims, n_controls=simulator.n_controls, control_limits=simulator.control_limits)    
 
-    # Define the dynamics model
+    policy_net = Policy(simulator.n_dims, simulator.n_controls)
+    V = CBFNet(simulator.n_dims)
+    
     neural_cbf_controller = NeuralCBFController(
-        dynamics_model,
+        nn_dynamics,
         data_module,
+        simulator,
         cbf_lambda=1.0,
-        safe_level=1.0,
+        safe_level=0.0,
     )
     
     trainer = pl.Trainer.from_argparse_args(
         args,
-        max_epochs=26,
+        max_epochs=1000,
     )
 
     # Train
