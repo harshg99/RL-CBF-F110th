@@ -6,15 +6,17 @@ import os
 from tqdm import tqdm
 import argparse
 # TODO CHECK: include needed ROS msg type headers and lib
+TEST_DATA = True
+from matplotlib import pyplot as plt
 
 class F110System:
     def __init__(self, args_main):
         self.args = args_main
         args = dict()
-        args['lookahead_distance'] = 1.5
-        args['velocity'] = 3.0
-        args['speed_lookahead_distance'] = 2.0
-        args['brake_gain'] = 1.0
+        args['lookahead_distance'] = 1.75
+        args['velocity'] = 3.2
+        args['speed_lookahead_distance'] = 2.25
+        args['brake_gain'] = 0.8
         args['wheel_base'] = 0.33
         args['visualize'] = False
         args['curvature_thresh'] = 0.1
@@ -22,7 +24,7 @@ class F110System:
         args['accel_gain'] = 0.0
         args = argparse.Namespace(**args)
 
-        filename = "/sim_ws/src/pure_pursuit/scripts/raceline_centre_half.csv"
+        filename = "scripts/raceline_centre_half.csv"
 
         positions = []
         with open(filename) as csv_file:
@@ -104,7 +106,7 @@ class F110System:
 
         ail3 = -2.4726
         bil3 = 1
-        cil3 = -18.2661
+        cil3 = -19.0661
 
         al4 = 0.4513
         bl4 = 1
@@ -121,10 +123,10 @@ class F110System:
 
         
         ## now calculate the distances from the point to each of the four centerlines
-        d1 = (al3*x + bl3*y - cl3 / al3*np.cos(yaw) + bl3*np.sin(yaw))
-        d2 = (al4*x + bl4*y - cl4 / al4*np.cos(yaw) + bl4*np.sin(yaw))
-        d3 = (ail3*x + bil3*y - cil3 / ail3*np.cos(yaw) + bil3*np.sin(yaw))
-        d4 = (ail4*x + bil4*y - cil4 / ail4*np.cos(yaw) + bil4*np.sin(yaw))
+        d1 = -(al3*x + bl3*y - cl3) / (al3*np.cos(yaw) + bl3*np.sin(yaw))
+        d2 = -(al4*x + bl4*y - cl4) / (al4*np.cos(yaw) + bl4*np.sin(yaw))
+        d3 = -(ail3*x + bil3*y - cil3) / (ail3*np.cos(yaw) + bil3*np.sin(yaw))
+        d4 = -(ail4*x + bil4*y - cil4) / (ail4*np.cos(yaw) + bil4*np.sin(yaw))
 
         if d1 < 0:
             d1 = 100
@@ -142,7 +144,7 @@ class F110System:
 
         # check if any of the ttcs are less than the maxTTC
         withinTTC = (ttc1 <= maxTTC) or (ttc2 <= maxTTC) or (ttc3 <= maxTTC) or (ttc4 <= maxTTC)
-        return withinTTC
+        return np.logical_not(withinTTC)
 
 
 
@@ -160,7 +162,7 @@ class F110System:
 
         ail3 = -2.4726
         bil3 = 1
-        cil3 = -18.2661
+        cil3 = -19.0661
 
         al4 = 0.4513
         bl4 = 1
@@ -188,25 +190,35 @@ class F110System:
                 x = np.random.uniform(args.bounds_lower, args.bounds_upper)
                 y = np.random.uniform(args.bounds_lower, args.bounds_upper)
                 withinOutterTrack = (al1*x + bl1*y <= cl1) and (al2*x + bl2*y <= cl2) and (al3*x + bl3*y >= cl3) and (al4*x + bl4*y >= cl4)
-                withininnertrack = (ail3*x + bil3*y <= cil3) and (ail4*x + bil4*y <= cil4)
+                withininnertrack = (ail3*x + bil3*y <= cil3) or (ail4*x + bil4*y <= cil4)
                 valid = withinOutterTrack and withininnertrack
 
             vel = np.random.uniform(args.vel_lower, args.vel_upper)
             yaw = np.random.uniform(-np.pi, np.pi)
+            steer = np.random.uniform(-args.steering_max,args.steering_max)
             
             orientation = R.from_euler('z', yaw).as_quat()
 
-            v_con, theta_con = self.controller.compute_control(x,y,orientation)
+            try:
+                v_con, theta_con = self.controller.compute_control(x,y,orientation)
+            except:
+                v_con, theta_con = 0, 0
+                safe = False
 
             safe = self.within_bounds(x, y) and self.ttc_bounds(x,y,yaw,vel)
 
             if safe:
-                safe_data['states'].append([x, y, theta_con, vel, yaw])
+                safe_data['states'].append([x, y, steer, vel, yaw])
                 safe_data['controls'].append([v_con, theta_con])
             else:
-                unsafe_data['states'].append([x, y, theta_con, vel, yaw])
+                unsafe_data['states'].append([x, y, steer, vel, yaw])
                 unsafe_data['controls'].append([0, 0])
-        
+        safe_data['states'] = np.array(safe_data['states'])
+        safe_data['controls'] = np.array(safe_data['controls'])
+        unsafe_data['states'] = np.array(unsafe_data['states'])
+        unsafe_data['controls'] = np.array(unsafe_data['controls'])
+        safe_data = np.array(safe_data)
+        unsafe_data = np.array(unsafe_data)
         metadata = np.array({'goal': goal, 'start_point': start_point})
         return safe_data, unsafe_data, metadata
 
@@ -217,22 +229,66 @@ class F110System:
         np.save(self.args.save_dir + '/unsafe_trajectory.npy', unsafe_data, allow_pickle= True)
         np.save(self.args.save_dir + '/metadata.npy', metadata, allow_pickle=True)
     
-    def load_data():
-        safe_data = np.load(self.args.save_dir + '/safe_trajectory.npy', allow_pickle=True)
-        unsafe_data = np.load(self.args.save_dir + '/unsafe_trajectory.npy', allow_pickle=True)
-        metadata = np.load(self.args.save_dir + '/metadata.npy', allow_pickle=True)
+    def load_data(self):
+        safe_data = np.load(self.args.save_dir + '/safe_trajectory.npy', allow_pickle=True).item()
+        unsafe_data = np.load(self.args.save_dir + '/unsafe_trajectory.npy', allow_pickle=True).item()
+        metadata = np.load(self.args.save_dir + '/metadata.npy', allow_pickle=True).item()
         return safe_data, unsafe_data, metadata
+    
+    def visualize_data(self):
+        # XY visualization with safe and unsafe data
+        safe_data, unsafe_data, metadata = self.load_data()
+        safe_states = safe_data['states']
+        unsafe_states = unsafe_data['states']
+        goal = metadata['goal']
+        start_point = metadata['start_point']
+
+        plt.figure()
+        plt.scatter(safe_states[:,0], safe_states[:,1], c='g', label='Safe')
+        plt.scatter(unsafe_states[:,0], unsafe_states[:,1], c='r', label='Unsafe',alpha=0.5)
+        plt.scatter(goal[0], goal[1], c='b', label='Goal')
+        plt.scatter(self.controller.waypoints[:,0], self.controller.waypoints[:,1], c='k')
+        plt.scatter(start_point[0], start_point[1], c='k', label='Start')
+        plt.legend()
+        #plt.show()
+        plt.savefig(self.args.save_dir + '/xy_visualization.png')
+
+        # Safe XY visualization with velocity and heading
+        plt.figure()
+        plt.quiver(safe_states[:,0], safe_states[:,1], np.cos(safe_states[:,4]), np.sin(safe_states[:,4]), safe_states[:,3], cmap='jet')
+        plt.colorbar()
+        #plt.show()
+        plt.savefig(self.args.save_dir + '/safe_xy_visualization.png')
+
+        # Unsafe XY visualization with velocity and heading
+        plt.figure()
+        plt.quiver(unsafe_states[:,0], unsafe_states[:,1], np.cos(unsafe_states[:,4]), np.sin(unsafe_states[:,4]), unsafe_states[:,3], cmap='jet')
+        plt.colorbar()
+        #plt.show()
+        plt.savefig(self.args.save_dir + '/unsafe_xy_visualization.png')
+
+        # plt waypoints
+        plt.figure()
+        plt.scatter(self.controller.waypoints[:,0], self.controller.waypoints[:,1], c='k')
+        #splt.show()
+        plt.savefig(self.args.save_dir + '/waypoints.png')
+
+
+
+
+
 
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_samples', type=float, default=1000)
-    parser.add_argument('--bounds_lower', type=float, default=-13)
-    parser.add_argument('--bounds_upper', type=float, default=13)
-    parser.add_argument('--margin', type=float, default=0.5)
-    parser.add_argument('--max_ttc', type=float, default=0.3)
+    parser.add_argument('--num_samples', type=int, default=1000000)
+    parser.add_argument('--bounds_lower', type=float, default=-14)
+    parser.add_argument('--bounds_upper', type=float, default=14)
+    parser.add_argument('--steering_max', type=float, default=0.4189)
+    parser.add_argument('--margin', type=float, default=0.50)
+    parser.add_argument('--max_ttc', type=float, default=0.4)
     parser.add_argument('--vel_lower', type=float, default=0.0)
-    parser.add_argument('--vel_upper', type=float, default=4.5)
+    parser.add_argument('--vel_upper', type=float, default=4.0)
     parser.add_argument('--filename', type=str, default='waypoints.csv') 
     parser.add_argument('--save_dir', type=str, default='trajectory_data/')
     args = parser.parse_args()
@@ -243,3 +299,6 @@ if __name__ == '__main__':
     system = F110System(args)
     safe_data,unsafe_data,metadata =  system.generate_data(args.num_samples)
     system.save_data(safe_data, unsafe_data, metadata)
+    if TEST_DATA:
+        system.visualize_data()
+
