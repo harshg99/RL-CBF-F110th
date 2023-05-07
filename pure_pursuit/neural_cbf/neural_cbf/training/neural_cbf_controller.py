@@ -38,6 +38,7 @@ class NeuralCBFController(pl.LightningModule):
         self.safe_loss_weight = 1.0
         self.unsafe_loss_weight = 1.0
         self.descent_loss_weight = 4.0
+        self.positive_value_loss_weight = 10.0
 
         self.system = system
         self.goal_point = system.controller.goal_point
@@ -93,9 +94,9 @@ class NeuralCBFController(pl.LightningModule):
             elif isinstance(layer, nn.ReLU):
                 JV = torch.matmul(torch.diag_embed(torch.sign(V)), JV)
         
-       
+
         JV = torch.bmm(V.unsqueeze(1), JV).squeeze() 
-        #V = 0.5*(V*V)
+        V = 0.5 * (V * V)
        
         return V, JV 
 
@@ -123,6 +124,11 @@ class NeuralCBFController(pl.LightningModule):
         # Compute loss to encourage satisfaction of the following conditions...
         loss = []
         V = self.V(x)
+        # TODO: just added this
+        V = 0.5 * (V * V)
+
+        # 0. V should be positive definite
+        # positive_value_loss = self.positive_value_loss_weight*F.relu(-V).mean()
 
         #   1.) CLBF should be minimized on the goal point
         #goal_point = torch.zeros([1, self.dynamics_model.n_dims])
@@ -137,11 +143,13 @@ class NeuralCBFController(pl.LightningModule):
         limits = torch.tensor([self.system.args.steering_max*2, self.system.args.vel_upper, 2*np.pi]).to(self.device)
         dev = torch.tensor([self.system.args.steering_max, self.system.args.vel_upper/2, np.pi]).to(self.device)
         goal_points[:,2:] = torch.rand(1000, self.dynamics_model.n_dims-2).to(self.device) * limits - dev
-        V_goal_pt = torch.square(self.V(goal_points))
+        #V_goal_pt = torch.square(self.V(goal_points))
+        V_goal_pt = 0.5 * self.V(goal_points) * self.V(goal_points)
         goal_term = self.goal_loss_weight* V_goal_pt.mean()
 
         # goals in the data buffer setting those to zero
-        V_goal = torch.square(V[goal_mask])
+        #V_goal = torch.square(V[goal_mask])
+        V_goal = V[goal_mask]
         goal_term += V_goal.mean()
 
         loss.append(("CLBF goal term", goal_term))
