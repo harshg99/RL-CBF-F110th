@@ -26,7 +26,7 @@ class NeuralCBFController(pl.LightningModule):
         n_dims = dynamics_model.n_dims
         n_controls = dynamics_model.n_controls
         self.policy_net = Policy(n_dims, n_controls, hidden_size=512)
-        self.V = CBFNet(n_dims, hidden_sizes=[64,1028,1028,1028,64])
+        self.V = CBFNet(n_dims, hidden_sizes=[64,1028,2048,2048,1028,64])
         # Save the datamodule
         self.datamodule = datamodule        
         self.unsafe_level = safe_level 
@@ -79,7 +79,7 @@ class NeuralCBFController(pl.LightningModule):
         Lf_V = (JV * full_dyn).sum(axis=1)
         descent_violation = F.relu(eps + Lf_V + self.cbf_lambda*V.squeeze())
         self.log("train/descent_violation", descent_violation.mean(), prog_bar=True, on_step=True,
-                 on_epoch=True, logger=True)
+                  logger=True)
         #estimated_r = self.estimate_violation(x)
         cbf_descent_term = self.descent_loss_weight*descent_violation.mean()  
         loss.append(("CBF descent term", cbf_descent_term))
@@ -165,14 +165,14 @@ class NeuralCBFController(pl.LightningModule):
             loss.append(("CLBF safe region accuracy", safe_V_acc))
 
         self.log("train/safe_violation", safe_violation.mean(), prog_bar=True, on_step=True,
-                 on_epoch=True, logger=True)
+                  logger=True)
         #   3.) V >= unsafe_level in the unsafe region
         V_unsafe = V[unsafe_mask]
         unsafe_violation = F.relu(eps + self.unsafe_level - V_unsafe)
         unsafe_V_term = self.unsafe_loss_weight * unsafe_violation.mean()
         loss.append(("CLBF unsafe region term", unsafe_V_term))
         self.log("train/unsafe_violation", unsafe_violation.mean(), prog_bar=True, on_step=True,
-                 on_epoch=True, logger=True)
+                  logger=True)
         if accuracy:
             unsafe_V_acc = (
                 unsafe_violation <= eps
@@ -188,6 +188,7 @@ class NeuralCBFController(pl.LightningModule):
         x, goal_mask, safe_mask, unsafe_mask, control = batch
         goal_mask = goal_mask.bool().squeeze()
         safe_mask = safe_mask.bool().squeeze()
+        safe_mask = safe_mask.bool().squeeze()
         unsafe_mask = unsafe_mask.bool().squeeze()
 
         # Compute the losses
@@ -199,17 +200,24 @@ class NeuralCBFController(pl.LightningModule):
         descent_losses.update(self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True))
 
         # Compute the overall loss by summing up the individual losses
+        violation_loss = torch.tensor(0.0).type_as(x)
+
         boundary_loss = torch.tensor(0.0).type_as(x)
+
         for loss_name, loss_value in boundary_losses.items():
             if not torch.isnan(loss_value):
                 boundary_loss += loss_value
-                self.log("train/subloss/"+loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+                self.log("train/" + loss_name, loss_value, on_step=True,  prog_bar=True)
+                if 'violation' in loss_name:
+                    violation_loss += loss_value
 
         descent_loss = torch.tensor(0.0).type_as(x)
         for loss_name, loss_value in descent_losses.items():
             if not torch.isnan(loss_value):
                 descent_loss += loss_value
-                self.log("train/subloss/" + loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+                self.log("train/"+ loss_name, loss_value, on_step=True,  prog_bar=True)
+                if 'violation' in loss_name:
+                    violation_loss += loss_value
 
         if torch.isnan(boundary_loss):
             value_loss = descent_loss
@@ -238,27 +246,30 @@ class NeuralCBFController(pl.LightningModule):
         policy_loss += descent_loss_policy
 
         total_loss += policy_loss
+        violation_loss += descent_violation.mean()
 
-        self.log("train/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+        self.log("train/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
                  logger=True)
-        self.log("train/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+        self.log("train/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
                  logger=True)
-        self.log("train/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+        self.log("train/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
                  logger=True)
-        self.log("train/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+        self.log("train/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
                  logger=True)
-        self.log("train/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+        self.log("train/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                 logger=True)
+        self.log("train/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True,
                  prog_bar=True, logger=True)
-        self.log("train/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
-                 prog_bar=True, logger=True)
+        self.log("train/violation_loss", violation_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                 logger=True)
 
         return total_loss
 
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
-        V_optimizer = Adam(self.V.parameters(), lr=1e-3)
-        policy_optimizer = Adam(self.policy_net.parameters(), lr=1e-3)      
+        V_optimizer = Adam(self.V.parameters(), lr=1e-4)
+        policy_optimizer = Adam(self.policy_net.parameters(), lr=1e-4)
         lr_scheduler = StepLR(V_optimizer, step_size=100, gamma=0.99)
         return [V_optimizer, policy_optimizer], [lr_scheduler]
     
@@ -290,17 +301,25 @@ class NeuralCBFController(pl.LightningModule):
         descent_losses.update(self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True))
 
         # Compute the overall loss by summing up the individual losses
+        # Compute the overall loss by summing up the individual losses
+        violation_loss = torch.tensor(0.0).type_as(x)
+
         boundary_loss = torch.tensor(0.0).type_as(x)
+
         for loss_name, loss_value in boundary_losses.items():
             if not torch.isnan(loss_value):
                 boundary_loss += loss_value
-                self.log("val/subloss/" + loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+                self.log("train/" + loss_name, loss_value, on_step=True, prog_bar=True)
+                if 'violation' in loss_name:
+                    violation_loss += loss_value
 
         descent_loss = torch.tensor(0.0).type_as(x)
         for loss_name, loss_value in descent_losses.items():
             if not torch.isnan(loss_value):
                 descent_loss += loss_value
-                self.log("val/subloss/" + loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+                self.log("train/" + loss_name, loss_value, on_step=True, prog_bar=True)
+                if 'violation' in loss_name:
+                    violation_loss += loss_value
 
         if torch.isnan(boundary_loss):
             value_loss = descent_loss
@@ -328,26 +347,27 @@ class NeuralCBFController(pl.LightningModule):
         descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
         policy_loss += descent_loss_policy
 
+        violation_loss += descent_violation.mean()
         total_loss += policy_loss
 
-        self.log("val/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+        self.log("val/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True,
                  prog_bar=True,
                  logger=True)
-        self.log("val/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+        self.log("val/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True,
                  prog_bar=True,
                  logger=True)
-        self.log("val/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+        self.log("val/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True,
                  prog_bar=True,
                  logger=True)
-        self.log("val/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+        self.log("val/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True,
                  prog_bar=True,
                  logger=True)
-        self.log("val/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+        self.log("val/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True,
                  prog_bar=True, logger=True)
         self.log("val/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True,
-                 on_epoch=True,
                  prog_bar=True, logger=True)
-
+        self.log("val/violation_loss", violation_loss.cpu().detach().numpy().item(), on_step=True,prog_bar = True,
+                 logger=True)
     # def estimate_violation(self, x, n_samples=100):
     #     batch_size = x.shape[0]
     #     n_controls = self.dynamics_model.n_controls

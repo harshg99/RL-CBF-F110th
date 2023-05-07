@@ -9,6 +9,7 @@ from pytorch_lightning import loggers as pl_loggers
 from neural_cbf.neural_cbf.datamodules import F110DataModule
 
 from neural_cbf.neural_cbf.training import NeuralCBFController, F110DynamicsModel
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from scripts.create_data import F110System, parse_args
 import numpy as np
@@ -36,21 +37,30 @@ def main(args):
     
     
     # Initialize the controller
-    dir_path = "neural_cbf/training/checkpoints/"
+    dir_path = "neural_cbf/training/checkpoints/"+args.version
+    model_checkpoint = ModelCheckpoint(
+        dirpath=dir_path,
+        filename="model",
+        save_top_k=-1,
+        verbose=True,
+        monitor="val/violation_loss",
+        mode="min",
+    )
 
     neural_cbf_controller = NeuralCBFController(
         dynamics,
         data_module,
         system = system,
         cbf_lambda=1.0,
-        safe_level=0.0,
+        safe_level=1.0,
     )
-    dir_path = "neural_cbf/training/logs/"
+    dir_path = "neural_cbf/training/logs/"+args.version
     tb_logger = pl_loggers.TensorBoardLogger(save_dir=dir_path)
     trainer = pl.Trainer.from_argparse_args(
         args,
-        max_epochs=1000,
+        max_epochs=10,
         logger=tb_logger,
+        callbacks=[model_checkpoint],
     )
 
     # Train
@@ -60,6 +70,7 @@ def main(args):
 if __name__ == "__main__":
     parser = parse_args(False)
     parser.add_argument('--goal_radius', type=float, default=0.4)
+    parser.add_argument('--version', type=str, default='v0')
     parser = pl.Trainer.add_argparse_args(parser)
     args = parser.parse_args()
 
