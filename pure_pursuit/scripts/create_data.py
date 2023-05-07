@@ -1,6 +1,6 @@
 import numpy as np
 import csv
-from pure_pursuit_control import PurePursuitController
+from scripts.pure_pursuit_control import PurePursuitController
 from scipy.spatial.transform import Rotation as R
 import os
 from tqdm import tqdm
@@ -278,7 +278,7 @@ class F110System:
 
 
 
-def parse_args():
+def parse_args(return_args=True):
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_samples', type=int, default=1000000)
@@ -291,8 +291,11 @@ def parse_args():
     parser.add_argument('--vel_upper', type=float, default=4.0)
     parser.add_argument('--filename', type=str, default='waypoints.csv') 
     parser.add_argument('--save_dir', type=str, default='trajectory_data/')
-    args = parser.parse_args()
-    return args
+    if return_args:
+        args = parser.parse_args()
+        return args
+    else:
+        return parser
 
 if __name__ == '__main__':
     args = parse_args()

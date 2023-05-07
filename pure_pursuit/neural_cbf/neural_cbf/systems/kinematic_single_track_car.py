@@ -147,7 +147,8 @@ class KSCar(ControlAffineSystem):
         """Return the mask of x indicating safe regions for the obstacle task
 
         args:
-            x: a tensor of points in the state space
+            x: a tensortrols = n_controls       
+        self.control_limits = control_limits  of points in the state space
         """
         safe_mask = torch.ones_like(x[:, 0], dtype=torch.bool)
 

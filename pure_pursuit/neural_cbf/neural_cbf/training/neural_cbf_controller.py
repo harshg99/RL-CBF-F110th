@@ -42,8 +42,7 @@ class NeuralCBFController(pl.LightningModule):
         self.unsafe_loss_weight = 10 
         self.descent_loss_weight = 100 
         
-        # TODO need to remove later
-        self.dynamic_system = system 
+
     def descent_loss(
         self,
         x: torch.Tensor,

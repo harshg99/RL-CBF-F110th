@@ -23,7 +23,6 @@ x_list, y_list, z_list = [], [], []
 
 def create_straight_segment(pt1, pt2, no_of_points=10):
 
-    pt1 = 
     unit_vec = (pt2 - pt1) / np.linalg.norm(pt2-pt1)
     segment_length = np.linalg.norm(pt2 - pt1) / no_of_points
     waypoints = pt1 + unit_vec * np.arange(1, no_of_points)

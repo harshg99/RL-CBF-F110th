@@ -6,24 +6,23 @@ import pytorch_lightning as pl
 from torch.utils.data import TensorDataset, DataLoader
 
 
-from pure_pursuit.scripts.create_data import F110System, parse_args
+from scripts.create_data import F110System, parse_args
+import numpy as np
+from pdb import set_trace as bp
 
-
-class EpisodicDataModule(pl.LightningDataModule):
+class F110DataModule(pl.LightningDataModule):
     def __init__(
         self,
         args,
         model: F110System,
-        initial_domain: List[Tuple[float, float]],
         val_split: float = 0.1,
-        batch_size: int = 64,
+        batch_size: int = 512,
         quotas={"safe": 0.5, "unsafe": 0.3, "goal": 0.2},
     ):
         super().__init__()
         # Args that need to be parsed into from the training script
         self.args = args
         self.model = model(args)
-        self.initial_domain = initial_domain
         self.val_split = val_split
         self.batch_size = batch_size
         self.quotas = quotas
@@ -37,17 +36,18 @@ class EpisodicDataModule(pl.LightningDataModule):
         
         safe_states = safe_data['states']
         unsafe_states = unsafe_data['states']
-        safe_control = safe_data['control']
-        unsafe_control = unsafe_data['control']
+        safe_control = safe_data['controls']
+        unsafe_control = unsafe_data['controls']
 
         start_point = metadata['start_point']
-        goal_point = metadata['goal_point']
+        goal_point = metadata['goal']
         
         near_safe_goals = np.linalg.norm(safe_states[:, :2] - goal_point, axis=1) < self.args.goal_radius
         near_unsafe_goals = np.linalg.norm(unsafe_states[:, :2] - goal_point, axis=1) < self.args.goal_radius
 
-        safe_mask = np.concatenate((np.ones(safe_states.shape[0]), np.zeros(unsafe_states.shape[0])),axis = 0)
-        goal_mask = np.concatenate((near_safe_goals, near_unsafe_goals),axis = 0)
+        safe_mask = np.expand_dims(np.concatenate((np.ones(safe_states.shape[0],dtype=np.int),
+         np.zeros(unsafe_states.shape[0],dtype=np.int)),axis = 0), axis=-1)
+        goal_mask = np.expand_dims(np.concatenate((near_safe_goals, near_unsafe_goals),axis = 0), axis=-1)
         states = np.concatenate((safe_states, unsafe_states), axis=0)
         control = np.concatenate((safe_control, unsafe_control), axis=0)
 
@@ -55,7 +55,7 @@ class EpisodicDataModule(pl.LightningDataModule):
         val_pts = int(states.shape[0] * self.val_split)
         validation_indices = random_indices[:val_pts]
         training_indices = random_indices[val_pts:]
-
+        
         self.states_training = states[training_indices]
         self.states_validation = states[validation_indices]
         self.control_training = control[training_indices]
@@ -65,7 +65,7 @@ class EpisodicDataModule(pl.LightningDataModule):
         self.goal_mask_training = goal_mask[training_indices]
         self.goal_mask_validation = goal_mask[validation_indices]
 
-
+        #bp()
         print("Full dataset:")
         print(f"\t{self.states_training.shape[0]} training")
         print(f"\t{self.states_validation.shape[0]} validation")
@@ -74,22 +74,23 @@ class EpisodicDataModule(pl.LightningDataModule):
         print(f"\t({self.goal_mask_validation.sum()} val)")
         print(f"\t{self.safe_mask_training.sum()} safe points")
         print(f"\t({self.safe_mask_validation.sum()} val)")
-        print(f"\t{np.logical_and_(self.safe_mask_training).sum()} unsafe points")
-        print(f"\t({np.logical_and_(self.safe_mask_validation).sum()} val)")
+        print(f"\t{np.logical_not(self.safe_mask_training).sum()} unsafe points")
+        print(f"\t({np.logical_not(self.safe_mask_validation).sum()} val)")
 
         # Turn these into tensor datasets
+        bp()
         self.training_data = TensorDataset(
             self.states_training,
             self.goal_mask_training,
             self.safe_mask_training,
-            self.unsafe_mask_training,
+            np.logical_not(self.safe_mask_training),
             self.control_training
         )
         self.validation_data = TensorDataset(
             self.states_validation,
             self.goal_mask_validation,
             self.safe_mask_validation,
-            self.unsafe_mask_validation,
+            np.logical_not(self.safe_mask_training),
             self.control_validation
         )
 
@@ -105,17 +106,17 @@ class EpisodicDataModule(pl.LightningDataModule):
 
         safe_states = safe_data['states']
         unsafe_states = unsafe_data['states']
-        safe_control = safe_data['control']
-        unsafe_control = unsafe_data['control']
-
+        safe_control = safe_data['controls']
+        unsafe_control = unsafe_data['controls']
         start_point = metadata['start_point']
-        goal_point = metadata['goal_point']
+        goal_point = metadata['goal']
         
         near_safe_goals = np.linalg.norm(safe_states[:, :2] - goal_point, axis=1) < self.args.goal_radius
         near_unsafe_goals = np.linalg.norm(unsafe_states[:, :2] - goal_point, axis=1) < self.args.goal_radius
 
-        safe_mask = np.concatenate((np.ones(safe_states.shape[0]), np.zeros(unsafe_states.shape[0])),axis = 0)
-        goal_mask = np.concatenate((near_safe_goals, near_unsafe_goals),axis = 0)
+        safe_mask = np.expand_dims(np.concatenate((np.ones(safe_states.shape[0],dtype=np.int), 
+        np.zeros(unsafe_states.shape[0],dtype=np.int)),axis = 0),axis=-1)
+        goal_mask = np.expand_dims(np.concatenate((near_safe_goals, near_unsafe_goals),axis = 0),axis=-1)
         states = np.concatenate((safe_states, unsafe_states), axis=0)
         control = np.concatenate((safe_control, unsafe_control), axis=0)
 
@@ -150,21 +151,51 @@ class EpisodicDataModule(pl.LightningDataModule):
         print(f"\t({self.goal_mask_validation.sum()} val)")
         print(f"\t{self.safe_mask_training.sum()} safe points")
         print(f"\t({self.safe_mask_validation.sum()} val)")
-        print(f"\t{np.logical_and_(self.safe_mask_training).sum()} unsafe points")
-        print(f"\t({np.logical_and_(self.safe_mask_validation).sum()} val)")
+        print(f"\t{np.logical_not(self.safe_mask_training).sum()} unsafe points")
+        print(f"\t({np.logical_not(self.safe_mask_validation).sum()} val)")
 
         # Turn these into tensor datasets
         self.training_data = TensorDataset(
             self.states_training,
             self.goal_mask_training,
             self.safe_mask_training,
-            self.unsafe_mask_training,
+            np.logical_not(self.safe_mask_training),
             self.control_training
         )
         self.validation_data = TensorDataset(
             self.states_validation,
             self.goal_mask_validation,
             self.safe_mask_validation,
-            self.unsafe_mask_validation,
+            np.logical_not(self.safe_mask_training),
             self.control_validation
         )
+    
+    def train_dataloader(self):
+        """Make the DataLoader for training data"""
+        return DataLoader(
+            self.training_data,
+            batch_size=self.batch_size,
+            num_workers=4,
+        )
+
+    def val_dataloader(self):
+        """Make the DataLoader for validation data"""
+        return DataLoader(
+            self.validation_data,
+            batch_size=self.batch_size,
+            num_workers=4,
+        )
+
+if __name__=="__main__":
+    parser = parse_args(False)
+    parser.add_argument('--goal_radius', type=float, default=0.5)
+    args = parser.parse_args()
+
+    system = F110System
+    data_module = F110DataModule(args,system)
+    # Test module setup
+    data_module.prepare_data()
+
+    # Test add data
+    data_module.add_data()
+    

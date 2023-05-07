@@ -26,3 +26,5 @@ class VehicleParameters(object):
         self.m = 4.4482216152605 / 0.3048 * (74.91452)  # vehicle mass [kg]  MASS
         # moment of inertia for sprung mass in yaw [kg m^2]  IZZ
         self.I_z = 4.4482216152605 * 0.3048 * (1321.416)
+
+
