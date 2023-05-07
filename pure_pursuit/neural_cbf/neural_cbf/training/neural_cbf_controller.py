@@ -78,7 +78,8 @@ class NeuralCBFController(pl.LightningModule):
         full_dyn =  f.to(self.device) + torch.bmm(g.to(self.device), U.unsqueeze(2)).squeeze().to(self.device)
         Lf_V = (JV * full_dyn).sum(axis=1)
         descent_violation = F.relu(eps + Lf_V + self.cbf_lambda*V.squeeze())
-
+        self.log("train/descent_violation", descent_violation.mean(), prog_bar=True, on_step=True,
+                 on_epoch=True, logger=True)
         #estimated_r = self.estimate_violation(x)
         cbf_descent_term = self.descent_loss_weight*descent_violation.mean()  
         loss.append(("CBF descent term", cbf_descent_term))
@@ -163,11 +164,15 @@ class NeuralCBFController(pl.LightningModule):
             safe_V_acc = (safe_violation <= eps).sum() / safe_violation.nelement()
             loss.append(("CLBF safe region accuracy", safe_V_acc))
 
+        self.log("train/safe_violation", safe_violation.mean(), prog_bar=True, on_step=True,
+                 on_epoch=True, logger=True)
         #   3.) V >= unsafe_level in the unsafe region
         V_unsafe = V[unsafe_mask]
         unsafe_violation = F.relu(eps + self.unsafe_level - V_unsafe)
         unsafe_V_term = self.unsafe_loss_weight * unsafe_violation.mean()
         loss.append(("CLBF unsafe region term", unsafe_V_term))
+        self.log("train/unsafe_violation", unsafe_violation.mean(), prog_bar=True, on_step=True,
+                 on_epoch=True, logger=True)
         if accuracy:
             unsafe_V_acc = (
                 unsafe_violation <= eps
