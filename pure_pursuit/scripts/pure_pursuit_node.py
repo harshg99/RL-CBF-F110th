@@ -21,8 +21,8 @@ class PurePursuit(Node):
     """
     def __init__(self, filename = None):
         super().__init__('pure_pursuit_node')
-        self.declare_parameter('lookahead_distance', 1.5)
-        self.declare_parameter('velocity', 3.0)
+        self.declare_parameter('lookahead_distance', 1.75)
+        self.declare_parameter('velocity', 3.2)
         self.declare_parameter('speed_lookahead_distance', 2.0)
         self.declare_parameter('brake_gain', 1.0)
         self.declare_parameter('wheel_base', 0.33)
@@ -79,7 +79,7 @@ class PurePursuit(Node):
         self.waypoints = np.array(positions)
         print(f'Processed {line_count} lines.')
         self.start_point = self.waypoints[0]
-        self.goal_point = self.waypoints[-1]
+        self.goal_point = self.waypoints[255]
         self.controller = PurePursuitController(args, self.waypoints.copy())
         
 

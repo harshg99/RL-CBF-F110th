@@ -18,7 +18,7 @@ class PurePursuitController:
         self.accel_gain = args.accel_gain
         self.waypoints = waypoints
         self.start_point = self.waypoints[0]
-        self.goal_point = self.waypoints[-1]
+        self.goal_point = self.waypoints[255]
     
     def compute_control(self, x, y,orientation):
         pos = np.array([[x, y]])
