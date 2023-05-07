@@ -1,28 +1,24 @@
-from neural_cbf.systems import KSCar
-
 import pytorch_lightning as pl
 
 import torch
 from torch.utils.data import TensorDataset, random_split, DataLoader
 from argparse import ArgumentParser
 from torch.optim.lr_scheduler import StepLR
+from scripts.create_data import F110System,parse_args
+from scripts.pure_pursuit_control import PurePursuitController
+from scipy.spatial.transform import Rotation as R
+import numpy as np
+from copy import deepcopy
 
 controller_period = 0.01
 simulation_dt = 0.001
-
+from matplotlib import pyplot as plt
 class F110DynamicsModel:
-    def __init__(self, n_dims, n_controls, control_limits, vehicle_parameters,params = None):
-        super(F110DynamicsModel, self).__init__()
-        self.layer1 = torch.nn.Linear(n_dims + n_controls, 32)
-        self.layer2 = torch.nn.Linear(32, 64)
-        self.layer3 = torch.nn.Linear(64, n_dims)
-        self.loss_fn = torch.nn.MSELoss()
+    def __init__(self, n_dims, n_controls, vehicle_parameters=None,params = None):
         self.n_dims = n_dims
         self.n_controls = n_controls       
-        self.control_limits = control_limits 
-
         if vehicle_parameters is None:
-            self.vehicle_parameters = {'mu': 1.0489, 
+            self.vehicle_params = {'mu': 1.0489, 
             'C_Sf': 4.718,
             'C_Sr': 5.4562,
             'lf': 0.15875,
@@ -43,7 +39,6 @@ class F110DynamicsModel:
 
         if params is None:
             params = {'dt': 1e-3}
-    
     
     def __call__(self, x, u):
         '''
@@ -75,7 +70,7 @@ class F110DynamicsModel:
         
         return f,g
 
-    def steering_constraint(steering_angle, steering_velocity, s_min, s_max, sv_min, sv_max):
+    def steering_constraint(self, steering_angle, steering_velocity, s_min, s_max, sv_min, sv_max):
         """
         Steering constraints, adjusts the steering velocity based on constraints
 
@@ -101,7 +96,7 @@ class F110DynamicsModel:
 
         return steering_velocity
 
-    def accl_constraints(vel, accl, v_switch, a_max, v_min, v_max):
+    def accl_constraints(self, vel, accl, v_switch, a_max, v_min, v_max):
         """
         Acceleration constraints, adjusts the acceleration based on constraints
 
@@ -133,7 +128,7 @@ class F110DynamicsModel:
 
         return accl
 
-    def vehicle_dynamics_ks(x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
+    def vehicle_dynamics_ks(self, x, u_init, mu, C_Sf, C_Sr, lf, lr, h, m, I, s_min, s_max, sv_min, sv_max, v_switch, a_max, v_min, v_max):
         """
         Single Track Kinematic Vehicle Dynamics.
 
@@ -145,8 +140,8 @@ class F110DynamicsModel:
                     x4: velocity in x direction
                     x5: yaw angle
                 u (numpy.ndarray (2, )): control input vector (u1, u2)
-                    u1: steering angle velocity of front wheels
-                    u2: longitudinal acceleration
+                    u1: steering angle of front wheels
+                    u2: velocity
 
             Returns:
                 f (numpy.ndarray): right hand side of differential equations
@@ -154,13 +149,14 @@ class F110DynamicsModel:
         # wheelbase
         lwb = lf + lr
         
-        accl, sv = pid(u_init[0], u_init[1], x[3], x[2],
+        #getting acelerations and steering velocities
+        accl, sv = self.pid(u_init[0], u_init[1], x[3], x[2],
          self.vehicle_params['sv_max'], self.vehicle_params['a_max'], 
          self.vehicle_params['v_max'], self.vehicle_params['v_min'])
 
         # constraints
-        u = np.array([steering_constraint(x[2],sv, s_min, s_max, sv_min, sv_max), 
-        accl_constraints(x[3], accl, v_switch, a_max, v_min, v_max)])
+        u = np.array([self.steering_constraint(x[2],sv, s_min, s_max, sv_min, sv_max), 
+        self.accl_constraints(x[3], accl, v_switch, a_max, v_min, v_max)])
         
         u = torch.tensor(u, dtype = torch.float32)
 
@@ -172,11 +168,12 @@ class F110DynamicsModel:
             x[3]/lwb*np.tan(x[2])])
         f = torch.tensor(f,dtype = torch.float32)
 
-        g = np.array([0, 0, u[0]/u_init[0], 0, 0,
-                      0, 0, 0, u[1]/u_init[1], 0]).T
+        g = np.array([[0, 0, u[0]/u_init[0], 0, 0],
+                      [0, 0, 0, u[1]/u_init[1], 0]]).T
+        g = torch.tensor(g,dtype = torch.float32)
         return (f,g)
 
-    def pid(speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v):
+    def pid(self, speed, steer, current_speed, current_steer, max_sv, max_a, max_v, min_v):
         """
         Basic controller for speed/steer -> accl./steer vel.
 
@@ -220,29 +217,54 @@ class F110DynamicsModel:
 
         return accl, sv
 
-
 def main(args):
-    # Define the dynamics model
-    nominal_params = {
-        "psi_ref": 1.0,
-        "v_ref": 10.0,
-        "a_ref": 0.0,
-        "omega_ref": 0.0,
-    }
-    simulator = KSCar(
-        nominal_params, dt=simulation_dt, controller_dt=controller_period
-    )
-    #states, actions, next_states = dynamics_model.sample_dynamics_data(10000)
-    dynamics_model = DynamicsModel(simulator.n_dims, simulator.n_controls, simulator.control_limits)
-    data_module = DynamicsDataModule(simulator, batch_size=32)
-    trainer = pl.Trainer(max_epochs=5000, gpus=1)
-    trainer.fit(dynamics_model, datamodule=data_module)
-    #trainer.test(dynamics_model, datamodule=data_module)
+    # Test dynamics
 
-    
+    # Load the reference trajectory here and compute controls from the purepuruit controller
+    # Simulate dynamics with the purepursuit controller
+    # compare original trajectory with the simulated trajectory
+
+    # Load the reference trajectory here and compute controls from the purepuruit controller
+    system = F110System(args)
+    dt = 0.01
+    actual_waypoints = system.controller.waypoints.copy()
+    actual_waypoints = np.array(actual_waypoints)
+    goal = system.controller.goal_point.copy()
+
+    start_state = np.array([actual_waypoints[0,0], actual_waypoints[0,1], 0, 0, 0])
+    start_state = torch.tensor(start_state, dtype = torch.float32)
+    dynamics = F110DynamicsModel(n_dims = 5, n_controls = 2)
+    # Simulate dynamics with the purepursuit controller
+    start = deepcopy(start_state)
+    all_states = [deepcopy(start.detach().numpy())]
+    start_np = start.detach().numpy()
+    while (np.linalg.norm(start_np[:2] - goal[:2]) > 0.1):
+        orientation = R.from_euler('z', start_np[4], degrees=False).as_quat()
+        try:
+            control = system.controller.compute_control(start_np[0],start_np[1],orientation)
+        except:
+            break
+        f,g = dynamics(start, control)
+        # print(f.shape)
+        # print(g.shape)
+        start = start + dt*(f + g@np.array([control[0], control[1]]))
+        all_states.append(start.detach().numpy())
+        start_np = start.detach().numpy()
+
+    # compare original trajectory with the simulated trajectory
+    all_states = np.array(all_states)
+    print(all_states.shape)
+    plt.plot(actual_waypoints[:,0], actual_waypoints[:,1], label = 'reference')
+    #plt.figure()
+    plt.plot(all_states[:,0], all_states[:,1], label = 'simulated')
+    #plot goal points 
+    plt.plot(goal[0], goal[1], 'ro', label = 'goal')
+    plt.plot(start_state[0], start_state[1], 'go', label = 'start')
+    plt.legend()
+    plt.show()
+
     
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    args = parser.parse_args()
+    args = parse_args()
 
     main(args)
