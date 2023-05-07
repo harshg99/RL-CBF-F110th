@@ -6,60 +6,51 @@ import torch
 import torch.multiprocessing
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
-from neural_cbf.datamodules.episodic_datamodule import (
-    EpisodicDataModule,
-)
+from neural_cbf.neural_cbf.datamodules import F110DataModule
 
-from neural_cbf.neural_cbf import NeuralCBFController
-from train_dynamics import DynamicsModel
-from neural_cbf.systems import InvertedPendulum
-from neural_cbf.models import Policy, CBFNet
+from neural_cbf.neural_cbf.training import NeuralCBFController, F110DynamicsModel
+
+from scripts.create_data import F110System, parse_args
+import numpy as np
 
 def main(args):
-    nominal_params = {"m": 1.0, "L": 1.0, "b": 0.01}
+
+
     controller_period = 0.05
     simulation_dt = 0.01
-    
-    simulator = InvertedPendulum(
-        nominal_params,
-    )
-    
-    initial_conditions = [
-        (-np.pi / 2, np.pi / 2),  # theta
-        (-1.0, 1.0),  # theta_dot
-    ]
-    
-    data_module = EpisodicDataModule(
-        simulator,
-        initial_conditions,
-        trajectories_per_episode=1,  # disable collecting data from trajectories
-        trajectory_length=1,
-        fixed_samples=10000,
-        max_points=100000,
+
+    # State_dims
+    state_dims = 5
+    control_dims = 2
+
+    system = F110System(args)
+
+    dynamics = F110DynamicsModel(n_dims = state_dims, n_controls = control_dims)
+
+    data_module = F110DataModule(args,
+        model=F110System,
         val_split=0.1,
-        batch_size=64,
-        quotas={"safe": 0.4, "unsafe": 0.2, "goal": 0.2},
+        batch_size=32,
+        quotas={"safe": 0.5, "unsafe": 0.4, "goal": 0.1},
     )
     
     
     # Initialize the controller
-    dir_path = "/home/ny0221/neural_cbf/neural_cbf/training/checkpoints/"
-    nn_dynamics = DynamicsModel.load_from_checkpoint(dir_path + "pendulum.ckpt", n_dims=simulator.n_dims, n_controls=simulator.n_controls, control_limits=simulator.control_limits)    
+    dir_path = "neural_cbf/training/checkpoints/"
 
-    policy_net = Policy(simulator.n_dims, simulator.n_controls)
-    V = CBFNet(simulator.n_dims)
-    
     neural_cbf_controller = NeuralCBFController(
-        nn_dynamics,
+        dynamics,
         data_module,
-        simulator,
+        system = system,
         cbf_lambda=1.0,
         safe_level=0.0,
     )
-    
+    dir_path = "neural_cbf/training/logs/"
+    tb_logger = pl_loggers.TensorBoardLogger(save_dir=dir_path)
     trainer = pl.Trainer.from_argparse_args(
         args,
         max_epochs=1000,
+        logger=tb_logger,
     )
 
     # Train
@@ -67,7 +58,8 @@ def main(args):
     trainer.fit(neural_cbf_controller)
     
 if __name__ == "__main__":
-    parser = ArgumentParser()
+    parser = parse_args(False)
+    parser.add_argument('--goal_radius', type=float, default=0.4)
     parser = pl.Trainer.add_argparse_args(parser)
     args = parser.parse_args()
 

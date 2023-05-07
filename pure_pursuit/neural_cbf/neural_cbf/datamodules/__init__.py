@@ -1,3 +1,2 @@
-from .episodic_datamodule import EpisodicDataModule
-
-__all__ = ["EpisodicDataModule"]
+from .f110_datamodule import F110DataModule
+__all__ = ["F110DataModule"]

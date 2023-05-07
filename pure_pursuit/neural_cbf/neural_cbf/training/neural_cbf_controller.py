@@ -1,19 +1,16 @@
 import pytorch_lightning as pl
 import torch
-from torch.utils.data import TensorDataset, random_split, DataLoader
-from argparse import ArgumentParser
+
 from torch import Tensor, nn
 from typing import Iterator, List, Tuple
 from torch.optim import Adam, Optimizer
-from neural_cbf.datamodules.episodic_datamodule import EpisodicDataModule
+
 import torch.nn.functional as F
-from torch.autograd.functional import jacobian
-from collections import OrderedDict
-from neural_cbf.datamodules.episodic_datamodule import (
-    EpisodicDataModule,
-)
-from neural_cbf.models import Policy, CBFNet
+
+from neural_cbf.neural_cbf.models import Policy, CBFNet
 from torch.optim.lr_scheduler import StepLR
+import numpy as np
+
 class NeuralCBFController(pl.LightningModule):
     """
     V(goal) = 0
@@ -28,20 +25,22 @@ class NeuralCBFController(pl.LightningModule):
         self.dynamics_model = dynamics_model
         n_dims = dynamics_model.n_dims
         n_controls = dynamics_model.n_controls
-        self.policy_net = Policy(n_dims, n_controls)
-        self.V = CBFNet(n_dims)
+        self.policy_net = Policy(n_dims, n_controls, hidden_size=512)
+        self.V = CBFNet(n_dims, hidden_sizes=[64,1028,1028,1028,64])
         # Save the datamodule
         self.datamodule = datamodule        
         self.unsafe_level = safe_level 
         self.safe_level = safe_level
         self.cbf_lambda = cbf_lambda
         
-        self.policy_loss_weight = 0
-        self.goal_loss_weight = 0
-        self.safe_loss_weight = 10
-        self.unsafe_loss_weight = 10 
-        self.descent_loss_weight = 100 
-        
+        self.policy_loss_weight = 2.0
+        self.goal_loss_weight = 1.0
+        self.safe_loss_weight = 1.0
+        self.unsafe_loss_weight = 1.0
+        self.descent_loss_weight = 4.0
+
+
+        self.goal_point = system.controller.goal_point
 
     def descent_loss(
         self,
@@ -71,10 +70,12 @@ class NeuralCBFController(pl.LightningModule):
         eps = 0.1
         V, JV = self.V_with_jacobian(x)
 
-        #Detaching descent loss here
+        #No grdients passed through the policy for the descent on the CLBF
         U = self.policy_net(x)
         U.requires_grad = False
-        Lf_V = (JV * self.dynamics_model(x, U)).sum(axis=1)
+        (f,g) = self.dynamics_model(x, U)
+        full_dyn =  f + torch.bmm(g, U.unsqueeze(2)).squeeze()
+        Lf_V = (JV * full_dyn).sum(axis=1)
         descent_violation = F.relu(eps + Lf_V + self.cbf_lambda*V.squeeze())
 
         #estimated_r = self.estimate_violation(x)
@@ -97,6 +98,7 @@ class NeuralCBFController(pl.LightningModule):
         #V = 0.5*(V*V)
        
         return V, JV 
+
     def boundary_loss(
         self,
         x: torch.Tensor,
@@ -123,9 +125,25 @@ class NeuralCBFController(pl.LightningModule):
         V = self.V(x)
 
         #   1.) CLBF should be minimized on the goal point
-        goal_point = torch.zeros([1, self.dynamics_model.n_dims])
-        V_goal_pt = self.V(goal_point)
+        #goal_point = torch.zeros([1, self.dynamics_model.n_dims])
+        # Samplling random 1000 goal points with set poses but random steering angle, velocity and acceleration
+        goal_points = torch.zeros([1000, self.dynamics_model.n_dims])
+
+        # Population position
+        goal_points[:,0] = self.goal_point[0]
+        goal_points[:,1] = self.goal_point[1]
+
+        #Pooulating steering angle, velocity and acceleration
+        limits = [self.system.args.steering_max*2, self.system.args.velocity_max, 2*np.pi]
+        dev = [self.system.args.steering_max, self.system.args.velocity_max/2, np.pi]
+        goal_points[:,2:] = torch.rand(1000, self.dynamics_model.n_dims-2) * torch.tensor(limits) - dev
+        V_goal_pt = self.V(goal_points)
         goal_term = self.goal_loss_weight* V_goal_pt.mean()
+
+        # goals in the data buffer setting those to zero
+        V_goal = V[goal_mask]
+        goal_term += V_goal.mean()
+
         loss.append(("CLBF goal term", goal_term))
 
         #   2.) 0 < V <= safe_level in the safe region
@@ -149,45 +167,80 @@ class NeuralCBFController(pl.LightningModule):
             loss.append(("CLBF unsafe region accuracy", unsafe_V_acc))
 
         return loss
-        
-        
+
     def training_step(self, batch, batch_idx, optimizer_idx):
         """Conduct the training step for the given batch"""
         # Extract the input and masks from the batch
-        print(optimizer_idx)
+        # print(optimizer_idx)
         x, goal_mask, safe_mask, unsafe_mask, control = batch
+        goal_mask = goal_mask.bool().squeeze()
+        safe_mask = safe_mask.bool().squeeze()
+        unsafe_mask = unsafe_mask.bool().squeeze()
 
         # Compute the losses
-        component_losses = {}
-        component_losses.update(
-            self.boundary_loss(x, goal_mask, safe_mask, unsafe_mask)
-        )
-        component_losses.update(
-            self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True)
-        )
+        boundary_losses = {}
+        boundary_losses.update(self.boundary_loss(x, goal_mask, safe_mask, unsafe_mask))
+
+
+        descent_losses = {}
+        descent_losses.update(self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True))
 
         # Compute the overall loss by summing up the individual losses
-        total_loss = torch.tensor(0.0).type_as(x)
-        # For the objectives, we can just sum them
-        for _, loss_value in component_losses.items():
+        boundary_loss = torch.tensor(0.0).type_as(x)
+        for loss_name, loss_value in boundary_losses.items():
             if not torch.isnan(loss_value):
-                total_loss += loss_value
+                boundary_loss += loss_value
+                self.log("train/subloss/"+loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
 
-        #batch_dict = {"loss": total_loss, **component_losses}
-        policy_loss = torch.nn.MSELoss()(self.policy_net(states[safe_mask]), control[safe_mask])  
-        
+        descent_loss = torch.tensor(0.0).type_as(x)
+        for loss_name, loss_value in descent_losses.items():
+            if not torch.isnan(loss_value):
+                descent_loss += loss_value
+                self.log("train/subloss/" + loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+
+        if torch.isnan(boundary_loss):
+            value_loss = descent_loss
+        elif torch.isnan(descent_loss):
+            value_loss = boundary_loss
+        else:
+            value_loss = boundary_loss + descent_loss
+        # For the objectives, we can just sum them
+        # batch_dict = {"loss": total_loss, **component_losses}
+        total_loss = value_loss
+        policy_loss = torch.nn.MSELoss()(self.policy_net(x), control)
+        total_loss += self.policy_loss_weight * policy_loss
+
         eps = 0.1
         V, JV = self.V_with_jacobian(x)
 
-        #Detaching descent loss here
+        # No gradients passed through value network for the descent loss on the policy
         U = self.policy_net(x)
         V.requires_grad = False
         JV.requires_grad = False
-        Lf_V = (JV * self.dynamics_model(x, U)).sum(axis=1)
-        descent_violation = F.relu(eps + Lf_V + self.cbf_lambda*V.squeeze())
+        (f, g) = self.dynamics_model(x, U)
+        full_dyn = f + torch.bmm(g, U.unsqueeze(2)).squeeze()
+        Lf_V = (JV * full_dyn).sum(axis=1)
+        descent_violation = F.relu(eps + Lf_V + self.cbf_lambda * V.squeeze())
+        descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
+        policy_loss += descent_loss_policy
 
-        total_loss +=(self.policy_loss_weight * policy_loss + self.descent_loss_weight*descent_violation.mean())
+        total_loss += policy_loss
+
+        self.log("train/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True)
+        self.log("train/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True)
+        self.log("train/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True)
+        self.log("train/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True, prog_bar=True,
+                 logger=True)
+        self.log("train/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True, logger=True)
+        self.log("train/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True, logger=True)
+
         return total_loss
+
     
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
@@ -205,15 +258,92 @@ class NeuralCBFController(pl.LightningModule):
     def train_dataloader(self):
         return self.datamodule.train_dataloader()
 
-    def estimate_violation(self, x, n_samples=100): 
-        batch_size = x.shape[0] 
-        n_controls = self.dynamics_model.n_controls
-        n_dims = self.dynamics_model.n_dims
-        upper_lim, lower_lim = self.dynamics_model.control_limits
-        u_samples = torch.rand([batch_size * n_samples, n_controls])
-        u_samples = u_samples*(upper_lim - lower_lim) + lower_lim
+    def val_dataloader(self):
+        return self.datamodule.val_dataloader()
+
+    def validation_step(self, batch, batch_idx):
+        '''Conduct the validation step for the given batch'''
+        # Extract the input and masks from the batch
+        x, goal_mask, safe_mask, unsafe_mask,control = batch
+        goal_mask = goal_mask.bool().squeeze()
+        safe_mask = safe_mask.bool().squeeze()
+        unsafe_mask = unsafe_mask.bool().squeeze()
+
+        # Compute the losses
+        boundary_losses = {}
+        boundary_losses.update(self.boundary_loss(x, goal_mask, safe_mask, unsafe_mask))
+
+        descent_losses = {}
+        descent_losses.update(self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True))
+
+        # Compute the overall loss by summing up the individual losses
+        boundary_loss = torch.tensor(0.0).type_as(x)
+        for loss_name, loss_value in boundary_losses.items():
+            if not torch.isnan(loss_value):
+                boundary_loss += loss_value
+                self.log("val/subloss/" + loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+
+        descent_loss = torch.tensor(0.0).type_as(x)
+        for loss_name, loss_value in descent_losses.items():
+            if not torch.isnan(loss_value):
+                descent_loss += loss_value
+                self.log("val/subloss/" + loss_name, loss_value, on_step=True, on_epoch=True, prog_bar=True)
+
+        if torch.isnan(boundary_loss):
+            value_loss = descent_loss
+        elif torch.isnan(descent_loss):
+            value_loss = boundary_loss
+        else:
+            value_loss = boundary_loss + descent_loss
+        # For the objectives, we can just sum them
+        # batch_dict = {"loss": total_loss, **component_losses}
+        total_loss = value_loss
+        policy_loss = torch.nn.MSELoss()(self.policy_net(x), control)
+        total_loss += self.policy_loss_weight * policy_loss
+
+        eps = 0.1
         V, JV = self.V_with_jacobian(x)
-        f_dot = self.dynamics_model(x.repeat_interleave(n_samples, dim=0), u_samples).view(batch_size, n_samples, n_dims)
-        lie_derivatives = torch.bmm(f_dot,JV.unsqueeze(2)).squeeze() 
-        violation = (lie_derivatives + self.cbf_lambda*V).max(axis=1)[0]
-        return F.relu(violation) 
+
+        # Detaching descent loss here
+        U = self.policy_net(x)
+        V.requires_grad = False
+        JV.requires_grad = False
+        (f, g) = self.dynamics_model(x, U)
+        full_dyn = f + torch.bmm(g, U.unsqueeze(2)).squeeze()
+        Lf_V = (JV * full_dyn).sum(axis=1)
+        descent_violation = F.relu(eps + Lf_V + self.cbf_lambda * V.squeeze())
+        descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
+        policy_loss += descent_loss_policy
+
+        total_loss += policy_loss
+
+        self.log("val/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True,
+                 logger=True)
+        self.log("val/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True,
+                 logger=True)
+        self.log("val/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True,
+                 logger=True)
+        self.log("val/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True,
+                 logger=True)
+        self.log("val/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, on_epoch=True,
+                 prog_bar=True, logger=True)
+        self.log("val/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True,
+                 on_epoch=True,
+                 prog_bar=True, logger=True)
+
+    # def estimate_violation(self, x, n_samples=100):
+    #     batch_size = x.shape[0]
+    #     n_controls = self.dynamics_model.n_controls
+    #     n_dims = self.dynamics_model.n_dims
+    #     upper_lim, lower_lim = self.dynamics_model.control_limits
+    #     u_samples = torch.rand([batch_size * n_samples, n_controls])
+    #     u_samples = u_samples*(upper_lim - lower_lim) + lower_lim
+    #     V, JV = self.V_with_jacobian(x)
+    #     f_dot,g_dot = self.dynamics_model(x.repeat_interleave(n_samples, dim=0), u_samples).view(batch_size, n_samples, n_dims)
+    #     lie_derivatives = torch.bmm(f_dot,JV.unsqueeze(2)).squeeze()
+    #     violation = (lie_derivatives + self.cbf_lambda*V).max(axis=1)[0]
+    #     return F.relu(violation)
