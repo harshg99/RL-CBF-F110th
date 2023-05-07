@@ -137,11 +137,11 @@ class NeuralCBFController(pl.LightningModule):
         limits = torch.tensor([self.system.args.steering_max*2, self.system.args.vel_upper, 2*np.pi]).to(self.device)
         dev = torch.tensor([self.system.args.steering_max, self.system.args.vel_upper/2, np.pi]).to(self.device)
         goal_points[:,2:] = torch.rand(1000, self.dynamics_model.n_dims-2).to(self.device) * limits - dev
-        V_goal_pt = self.V(goal_points)
+        V_goal_pt = torch.square(self.V(goal_points))
         goal_term = self.goal_loss_weight* V_goal_pt.mean()
 
         # goals in the data buffer setting those to zero
-        V_goal = V[goal_mask]
+        V_goal = torch.square(V[goal_mask])
         goal_term += V_goal.mean()
 
         loss.append(("CLBF goal term", goal_term))
