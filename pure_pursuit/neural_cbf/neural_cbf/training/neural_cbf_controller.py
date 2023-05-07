@@ -39,7 +39,7 @@ class NeuralCBFController(pl.LightningModule):
         self.unsafe_loss_weight = 1.0
         self.descent_loss_weight = 4.0
 
-
+        self.system = system
         self.goal_point = system.controller.goal_point
 
     def descent_loss(
@@ -72,9 +72,9 @@ class NeuralCBFController(pl.LightningModule):
 
         #No grdients passed through the policy for the descent on the CLBF
         U = self.policy_net(x)
-        U.requires_grad = False
-        (f,g) = self.dynamics_model(x, U)
-        full_dyn =  f + torch.bmm(g, U.unsqueeze(2)).squeeze()
+        U = U.detach()
+        (f,g) = self.dynamics_model(x.cpu().detach().numpy(), U.cpu().detach().numpy())
+        full_dyn =  f.to(self.device) + torch.bmm(g.to(self.device), U.unsqueeze(2)).squeeze().to(self.device)
         Lf_V = (JV * full_dyn).sum(axis=1)
         descent_violation = F.relu(eps + Lf_V + self.cbf_lambda*V.squeeze())
 
@@ -84,7 +84,7 @@ class NeuralCBFController(pl.LightningModule):
         return loss
     
     def V_with_jacobian(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        JV = torch.eye(self.V.net[0].in_features) 
+        JV = torch.eye(self.V.net[0].in_features).to(self.device)
         V = x
         for layer in self.V.net:
             V = layer(V)
@@ -127,16 +127,16 @@ class NeuralCBFController(pl.LightningModule):
         #   1.) CLBF should be minimized on the goal point
         #goal_point = torch.zeros([1, self.dynamics_model.n_dims])
         # Samplling random 1000 goal points with set poses but random steering angle, velocity and acceleration
-        goal_points = torch.zeros([1000, self.dynamics_model.n_dims])
+        goal_points = torch.zeros([1000, self.dynamics_model.n_dims]).to(self.device)
 
         # Population position
         goal_points[:,0] = self.goal_point[0]
         goal_points[:,1] = self.goal_point[1]
 
         #Pooulating steering angle, velocity and acceleration
-        limits = [self.system.args.steering_max*2, self.system.args.velocity_max, 2*np.pi]
-        dev = [self.system.args.steering_max, self.system.args.velocity_max/2, np.pi]
-        goal_points[:,2:] = torch.rand(1000, self.dynamics_model.n_dims-2) * torch.tensor(limits) - dev
+        limits = torch.tensor([self.system.args.steering_max*2, self.system.args.vel_upper, 2*np.pi]).to(self.device)
+        dev = torch.tensor([self.system.args.steering_max, self.system.args.vel_upper/2, np.pi]).to(self.device)
+        goal_points[:,2:] = torch.rand(1000, self.dynamics_model.n_dims-2).to(self.device) * limits - dev
         V_goal_pt = self.V(goal_points)
         goal_term = self.goal_loss_weight* V_goal_pt.mean()
 
@@ -215,10 +215,10 @@ class NeuralCBFController(pl.LightningModule):
 
         # No gradients passed through value network for the descent loss on the policy
         U = self.policy_net(x)
-        V.requires_grad = False
-        JV.requires_grad = False
-        (f, g) = self.dynamics_model(x, U)
-        full_dyn = f + torch.bmm(g, U.unsqueeze(2)).squeeze()
+        V = V.detach()
+        JV = JV.detach()
+        (f, g) = self.dynamics_model(x.cpu().detach().numpy(), U.cpu().detach().numpy())
+        full_dyn = f.to(self.device) + torch.bmm(g.to(self.device), U.unsqueeze(2)).squeeze().to(self.device)
         Lf_V = (JV * full_dyn).sum(axis=1)
         descent_violation = F.relu(eps + Lf_V + self.cbf_lambda * V.squeeze())
         descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
@@ -306,10 +306,10 @@ class NeuralCBFController(pl.LightningModule):
 
         # Detaching descent loss here
         U = self.policy_net(x)
-        V.requires_grad = False
-        JV.requires_grad = False
-        (f, g) = self.dynamics_model(x, U)
-        full_dyn = f + torch.bmm(g, U.unsqueeze(2)).squeeze()
+        V = V.detach()
+        JV = JV.detach()
+        (f, g) = self.dynamics_model(x.cpu().detach().numpy(), U.cpu().detach().numpy())
+        full_dyn = f.to(self.device) + torch.bmm(g.to(self.device), U.unsqueeze(2)).squeeze().to(self.device)
         Lf_V = (JV * full_dyn).sum(axis=1)
         descent_violation = F.relu(eps + Lf_V + self.cbf_lambda * V.squeeze())
         descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
