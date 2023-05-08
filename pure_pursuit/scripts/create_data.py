@@ -185,34 +185,37 @@ class F110System:
         unsafe_data = {'states':[], 'controls': []}
 
         for i in tqdm(range(num_samples)):
-            valid = False
-            while(not valid):
-                x = np.random.uniform(args.bounds_lower, args.bounds_upper)
-                y = np.random.uniform(args.bounds_lower, args.bounds_upper)
-                withinOutterTrack = (al1*x + bl1*y <= cl1) and (al2*x + bl2*y <= cl2) and (al3*x + bl3*y >= cl3) and (al4*x + bl4*y >= cl4)
-                withininnertrack = (ail3*x + bil3*y <= cil3) or (ail4*x + bil4*y <= cil4)
-                valid = withinOutterTrack and withininnertrack
+            valid_sample = False
+            while(not valid_sample):
+                valid_position = False
+                while(not valid_position):
+                    x = np.random.uniform(args.bounds_lower, args.bounds_upper)
+                    y = np.random.uniform(args.bounds_lower, args.bounds_upper)
+                    withinOutterTrack = (al1*x + bl1*y <= cl1) and (al2*x + bl2*y <= cl2) and (al3*x + bl3*y >= cl3) and (al4*x + bl4*y >= cl4)
+                    withininnertrack = (ail3*x + bil3*y <= cil3) or (ail4*x + bil4*y <= cil4)
+                    valid_position = withinOutterTrack and withininnertrack
 
-            vel = np.random.uniform(args.vel_lower, args.vel_upper)
-            yaw = np.random.uniform(-np.pi, np.pi)
-            steer = np.random.uniform(-args.steering_max,args.steering_max)
-            
-            orientation = R.from_euler('z', yaw).as_quat()
+                vel = np.random.uniform(args.vel_lower, args.vel_upper)
+                yaw = np.random.uniform(-np.pi, np.pi)
+                steer = np.random.uniform(-args.steering_max,args.steering_max)
 
-            try:
-                v_con, theta_con = self.controller.compute_control(x,y,orientation)
-            except:
-                v_con, theta_con = 0, 0
-                safe = False
+                orientation = R.from_euler('z', yaw).as_quat()
 
-            safe = self.within_bounds(x, y) and self.ttc_bounds(x,y,yaw,vel)
+                try:
+                    v_con, theta_con = self.controller.compute_control(x,y,orientation)
+                    safe = self.within_bounds(x, y) and self.ttc_bounds(x, y, yaw, vel)
 
-            if safe:
-                safe_data['states'].append([x, y, steer, vel, yaw])
-                safe_data['controls'].append([v_con, theta_con])
-            else:
-                unsafe_data['states'].append([x, y, steer, vel, yaw])
-                unsafe_data['controls'].append([0, 0])
+                    if safe:
+                        safe_data['states'].append([x, y, steer, vel, yaw])
+                        safe_data['controls'].append([v_con, theta_con])
+                    else:
+                        unsafe_data['states'].append([x, y, steer, vel, yaw])
+                        unsafe_data['controls'].append([v_con, theta_con])
+                    valid_sample = True
+                except:
+                    valid_sample = False
+                    print("Invalid sample at{}, trying again".format(i))
+
         safe_data['states'] = np.array(safe_data['states'])
         safe_data['controls'] = np.array(safe_data['controls'])
         unsafe_data['states'] = np.array(unsafe_data['states'])
