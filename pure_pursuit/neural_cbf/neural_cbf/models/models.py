@@ -2,6 +2,7 @@ from torch import Tensor, nn
 from collections import OrderedDict
 from typing import Iterator, List, Tuple
 import torch
+from torch.nn import functional as F
 class DynamicsModel(nn.Module):
     def __init__(self, n_dims, n_controls, control_limits):
         super(DynamicsModel, self).__init__()
@@ -21,12 +22,14 @@ class DynamicsModel(nn.Module):
         
 class Policy(nn.Module):
     """Simple MLP network."""
-    def __init__(self, n_dims: int, n_actions: int, hidden_size: int = 32):
+    def __init__(self, n_dims: int, n_actions: int, hidden_size: int = 32,
+                 limits = None):
         """
         Args:
             obs_size: observation/state size of the environment
             n_actions: number of discrete actions available in the environment
             hidden_size: size of hidden layers
+            limits:(nd_array (2,n_actions)) limits of the action space
         """
         super().__init__()
         self.net = nn.Sequential(
@@ -38,9 +41,15 @@ class Policy(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_size, n_actions),
         )
+        if limits is None:
+            limits = [[0,1]]*n_actions
+        self.limits = torch.tensor(limits,dtype = torch.float32,requires_grad=False)
 
     def forward(self, x):
-        return self.net(x.float())
+        out = F.sigmoid(self.net(x.float()))
+        self.limits = self.limits.to(x.device)
+        out = out * (self.limits[:,1] - self.limits[:,0]) + self.limits[:,0]
+        return out
 
 class CBFNet(nn.Module):
     """Simple MLP network for computing V(x)"""

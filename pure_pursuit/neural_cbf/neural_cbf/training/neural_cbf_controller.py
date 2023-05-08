@@ -33,9 +33,15 @@ class NeuralCBFController(pl.LightningModule):
         super().__init__()
         #self.save_hyperparameters()
         self.dynamics_model = dynamics_model
+        self.system = system
+        self.goal_point = system.controller.goal_point
+
         n_dims = dynamics_model.n_dims
         n_controls = dynamics_model.n_controls
-        self.policy_net = Policy(n_dims, n_controls, hidden_size=512)
+        limits = np.array([[0,self.system.args.vel_upper],
+                          [-self.system.args.steering_max,self.system.args.steering_max]])
+
+        self.policy_net = Policy(n_dims, n_controls, hidden_size=512, limits=limits)
         self.V = CBFNet(n_dims, hidden_sizes=[128,1028,1028,128])
 
         kaiming_init(self.V)
@@ -55,8 +61,7 @@ class NeuralCBFController(pl.LightningModule):
         self.descent_loss_weight_policy = 2.0
         self.positive_value_loss_weight = 10.0
 
-        self.system = system
-        self.goal_point = system.controller.goal_point
+
 
     def descent_loss(
         self,
