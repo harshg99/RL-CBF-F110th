@@ -1,9 +1,6 @@
 import pytorch_lightning as pl
 
 import torch
-from torch.utils.data import TensorDataset, random_split, DataLoader
-from argparse import ArgumentParser
-from torch.optim.lr_scheduler import StepLR
 from scripts.create_data import F110System,parse_args
 from scripts.pure_pursuit_control import PurePursuitController
 from scipy.spatial.transform import Rotation as R
