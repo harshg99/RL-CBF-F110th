@@ -10,6 +10,16 @@ import torch.nn.functional as F
 from neural_cbf.neural_cbf.models import Policy, CBFNet
 from torch.optim.lr_scheduler import StepLR
 import numpy as np
+import math
+
+def kaiming_init(model):
+    for name, param in model.named_parameters():
+        if name.endswith(".bias"):
+            param.data.fill_(0)
+        elif name.startswith("layers.0"):  # The first layer does not have ReLU applied on its input
+            param.data.normal_(0, 1 / math.sqrt(param.shape[1]))
+        else:
+            param.data.normal_(0, math.sqrt(2) / math.sqrt(param.shape[1]))
 
 class NeuralCBFController(pl.LightningModule):
     """
@@ -27,6 +37,10 @@ class NeuralCBFController(pl.LightningModule):
         n_controls = dynamics_model.n_controls
         self.policy_net = Policy(n_dims, n_controls, hidden_size=512)
         self.V = CBFNet(n_dims, hidden_sizes=[64,1028,2048,2048,1028,64])
+
+        # kaiming_init(self.V)
+        # kaiming_init(self.policy_net)
+
         # Save the datamodule
         self.datamodule = datamodule        
         self.unsafe_level = safe_level 
@@ -127,6 +141,8 @@ class NeuralCBFController(pl.LightningModule):
         V = self.V(x)
         # TODO: just added this
         V = 0.5 * (V * V)
+
+        self.log("train/V", V.mean(), prog_bar=True, on_step=True, logger=True)
 
         # 0. V should be positive definite
         # positive_value_loss = self.positive_value_loss_weight*F.relu(-V).mean()
