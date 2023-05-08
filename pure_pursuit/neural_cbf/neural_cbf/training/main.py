@@ -30,8 +30,8 @@ def main(args):
 
     data_module = F110DataModule(args,
         model=F110System,
-        val_split=0.1,
-        batch_size=32,
+        val_split=0.05,
+        batch_size=800,
         quotas={"safe": 0.5, "unsafe": 0.4, "goal": 0.1},
     )
     
@@ -41,7 +41,7 @@ def main(args):
     model_checkpoint = ModelCheckpoint(
         dirpath=dir_path,
         filename="model",
-        save_top_k=-1,
+        save_top_k=5,
         verbose=True,
         monitor="val/violation_loss",
         mode="min",

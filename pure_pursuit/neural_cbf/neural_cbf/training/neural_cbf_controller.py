@@ -36,7 +36,7 @@ class NeuralCBFController(pl.LightningModule):
         n_dims = dynamics_model.n_dims
         n_controls = dynamics_model.n_controls
         self.policy_net = Policy(n_dims, n_controls, hidden_size=512)
-        self.V = CBFNet(n_dims, hidden_sizes=[64,1028,2048,2048,1028,64])
+        self.V = CBFNet(n_dims, hidden_sizes=[128,1028,1028,128])
 
         # kaiming_init(self.V)
         # kaiming_init(self.policy_net)
@@ -50,7 +50,7 @@ class NeuralCBFController(pl.LightningModule):
         self.policy_loss_weight = 2.0
         self.goal_loss_weight = 1.0
         self.safe_loss_weight = 1.0
-        self.unsafe_loss_weight = 1.0
+        self.unsafe_loss_weight = 1.25
         self.descent_loss_weight = 4.0
         self.positive_value_loss_weight = 10.0
 
