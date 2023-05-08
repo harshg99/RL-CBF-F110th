@@ -232,7 +232,7 @@ class NeuralCBFController(pl.LightningModule):
             self.log("train/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
                      logger=True)
             return value_loss
-        else:
+        elif optimizer_idx == 1:
             # For the objectives, we can just sum them
             # batch_dict = {"loss": total_loss, **component_losses}
 
