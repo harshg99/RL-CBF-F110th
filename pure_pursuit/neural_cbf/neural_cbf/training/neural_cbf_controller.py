@@ -162,8 +162,8 @@ class NeuralCBFController(pl.LightningModule):
         goal_points[:,1] = self.goal_point[1]
 
         #Pooulating steering angle, velocity and acceleration
-        limits = torch.tensor([self.system.args.steering_max*2, self.system.args.vel_upper, 2*np.pi]).to(self.device)
-        dev = torch.tensor([self.system.args.steering_max, 0, np.pi]).to(self.device)
+        limits = torch.tensor([self.system.args.steering_max*2, self.system.args.vel_upper, 4.0/3.0*np.pi]).to(self.device)
+        dev = torch.tensor([self.system.args.steering_max, 0, 2.0/3.0*np.pi]).to(self.device)
         goal_points[:,2:] = torch.rand(500, self.dynamics_model.n_dims-2).to(self.device) * limits - dev
         #V_goal_pt = torch.square(self.V(goal_points))
         V_goal_pt = 0.5 * self.V(goal_points) * self.V(goal_points)

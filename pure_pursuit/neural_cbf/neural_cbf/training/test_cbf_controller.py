@@ -89,7 +89,7 @@ def run(start_state, args, system, nn_controller, dynamics, data,goal):
     start_np = start.detach().numpy()
     all_controls_expert = []
     dt = 0.01
-    max_steps = 2500
+    max_steps = 1200
 
     step = 0
     while (np.linalg.norm(start_np[:2] - goal[:2]) > 0.1) and step < max_steps:

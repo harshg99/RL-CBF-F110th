@@ -46,9 +46,11 @@ class Policy(nn.Module):
         self.limits = torch.tensor(limits,dtype = torch.float32,requires_grad=False)
 
     def forward(self, x):
+        #out = self.net(x.float())
         out = F.sigmoid(self.net(x.float()))
         self.limits = self.limits.to(x.device)
         out = out * (self.limits[:,1] - self.limits[:,0]) + self.limits[:,0]
+        print(out.cpu().detach().numpy())
         return out
 
 class CBFNet(nn.Module):

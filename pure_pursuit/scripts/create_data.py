@@ -13,10 +13,10 @@ class F110System:
     def __init__(self, args_main):
         self.args = args_main
         args = dict()
-        args['lookahead_distance'] = 1.75
-        args['velocity'] = 3.2
-        args['speed_lookahead_distance'] = 2.25
-        args['brake_gain'] = 0.8
+        args['lookahead_distance'] = 1.25
+        args['velocity'] = 2.0
+        args['speed_lookahead_distance'] = 1.50
+        args['brake_gain'] = 0.4
         args['wheel_base'] = 0.33
         args['visualize'] = False
         args['curvature_thresh'] = 0.1
@@ -196,7 +196,7 @@ class F110System:
                     valid_position = withinOutterTrack and withininnertrack
 
                 vel = np.random.uniform(args.vel_lower, args.vel_upper)
-                yaw = np.random.uniform(-np.pi, np.pi)
+                yaw = np.random.uniform(-2*np.pi/3, 2*np.pi/3)
                 steer = np.random.uniform(-args.steering_max,args.steering_max)
 
                 orientation = R.from_euler('z', yaw).as_quat()
@@ -214,7 +214,7 @@ class F110System:
                     valid_sample = True
                 except:
                     valid_sample = False
-                    print("Invalid sample at{}, trying again".format(i))
+                    #print("Invalid sample at{}, trying again".format(i))
 
         safe_data['states'] = np.array(safe_data['states'])
         safe_data['controls'] = np.array(safe_data['controls'])
@@ -242,6 +242,7 @@ class F110System:
         # XY visualization with safe and unsafe data
         safe_data, unsafe_data, metadata = self.load_data()
         safe_states = safe_data['states']
+        safe_controls = safe_data['controls']
         unsafe_states = unsafe_data['states']
         goal = metadata['goal']
         start_point = metadata['start_point']
@@ -276,6 +277,14 @@ class F110System:
         #splt.show()
         plt.savefig(self.args.save_dir + '/waypoints.png')
 
+        # Histogram of steering angles
+        plt.figure()
+        plt.hist(safe_controls[:,-1], bins=100)
+        plt.title('Steering angles')
+        #plt.show()
+        plt.savefig(self.args.save_dir + '/steering_angles.png')
+
+
 
 
 
@@ -287,11 +296,11 @@ def parse_args(return_args=True):
     parser.add_argument('--num_samples', type=int, default=1000000)
     parser.add_argument('--bounds_lower', type=float, default=-14)
     parser.add_argument('--bounds_upper', type=float, default=14)
-    parser.add_argument('--steering_max', type=float, default=0.4189)
+    parser.add_argument('--steering_max', type=float, default=0.50)
     parser.add_argument('--margin', type=float, default=0.50)
     parser.add_argument('--max_ttc', type=float, default=0.4)
     parser.add_argument('--vel_lower', type=float, default=0.0)
-    parser.add_argument('--vel_upper', type=float, default=4.0)
+    parser.add_argument('--vel_upper', type=float, default=2.5)
     parser.add_argument('--filename', type=str, default='waypoints.csv') 
     parser.add_argument('--save_dir', type=str, default='trajectory_data/')
     if return_args:
