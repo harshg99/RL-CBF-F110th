@@ -77,10 +77,10 @@ class F110StratifiedSampler(Sampler[int]):
         weights_goal = self.quotas["goal"] / self.goal_proportion
         
         # All safe goal samples would be upweighted, unsafe fo
-        self.weights = torch.zeros(self.num_samples)
-        self.weights[self.data_source.safe_indices] = weights_safe
-        self.weights[self.data_source.unsafe_indices] = weights_unsafe
-        self.weights[self.data_source.goal_indices] = weights_goal
+        self.weights = torch.ones(self.num_samples)
+        # self.weights[self.data_source.safe_indices] = weights_safe
+        # self.weights[self.data_source.unsafe_indices] = weights_unsafe
+        # self.weights[self.data_source.goal_indices] = weights_goal
         self.batch_size = batch_size
 
     def __iter__(self):
@@ -255,7 +255,7 @@ class F110DataModule(pl.LightningDataModule):
     def train_dataloader(self):
         """Make the DataLoader for training data"""
         sampler_train = F110StratifiedSampler(data_source=self.training_data, 
-                                        replacement=True,
+                                        replacement=False,
                                         seed = 0)
 
     
@@ -269,7 +269,7 @@ class F110DataModule(pl.LightningDataModule):
     def val_dataloader(self):
         """Make the DataLoader for validation data"""
         sampler_val = F110StratifiedSampler(data_source=self.validation_data,
-                                replacement=True,
+                                replacement=False,
                                 seed = 0)
         return DataLoader(
             self.validation_data,
