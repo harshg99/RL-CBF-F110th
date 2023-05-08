@@ -93,7 +93,7 @@ class NeuralCBFController(pl.LightningModule):
             if isinstance(layer, nn.Linear):
                 JV = torch.matmul(layer.weight, JV)
             elif isinstance(layer, nn.ReLU):
-                JV = torch.matmul(torch.diag_embed(torch.sign(V)), JV)
+                JV = torch.matmul(torch.diag_embed(torch.sign(V.detach())), JV)
         
 
         JV = torch.bmm(V.unsqueeze(1), JV).squeeze() 
@@ -191,89 +191,93 @@ class NeuralCBFController(pl.LightningModule):
         safe_mask = safe_mask.bool().squeeze()
         unsafe_mask = unsafe_mask.bool().squeeze()
 
-        # Compute the losses
-        boundary_losses = {}
-        boundary_losses.update(self.boundary_loss(x, goal_mask, safe_mask, unsafe_mask))
+        if optimizer_idx == 0:
+            # Compute the losses
+            boundary_losses = {}
+            boundary_losses.update(self.boundary_loss(x, goal_mask, safe_mask, unsafe_mask))
 
 
-        descent_losses = {}
-        descent_losses.update(self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True))
+            descent_losses = {}
+            descent_losses.update(self.descent_loss(x, goal_mask, safe_mask, unsafe_mask, requires_grad=True))
 
-        # Compute the overall loss by summing up the individual losses
-        violation_loss = torch.tensor(0.0).type_as(x)
+            # Compute the overall loss by summing up the individual losses
+            violation_loss = torch.tensor(0.0).type_as(x)
 
-        boundary_loss = torch.tensor(0.0).type_as(x)
+            boundary_loss = torch.tensor(0.0).type_as(x)
 
-        for loss_name, loss_value in boundary_losses.items():
-            if not torch.isnan(loss_value):
-                boundary_loss += loss_value
-                self.log("train/" + loss_name, loss_value, on_step=True,  prog_bar=True)
-                if 'violation' in loss_name:
-                    violation_loss += loss_value
+            for loss_name, loss_value in boundary_losses.items():
+                if not torch.isnan(loss_value):
+                    boundary_loss += loss_value
+                    self.log("train/" + loss_name, loss_value, on_step=True,  prog_bar=True)
 
-        descent_loss = torch.tensor(0.0).type_as(x)
-        for loss_name, loss_value in descent_losses.items():
-            if not torch.isnan(loss_value):
-                descent_loss += loss_value
-                self.log("train/"+ loss_name, loss_value, on_step=True,  prog_bar=True)
-                if 'violation' in loss_name:
-                    violation_loss += loss_value
+            descent_loss = torch.tensor(0.0).type_as(x)
+            for loss_name, loss_value in descent_losses.items():
+                if not torch.isnan(loss_value):
+                    descent_loss += loss_value
+                    self.log("train/"+ loss_name, loss_value, on_step=True,  prog_bar=True)
+                    if 'descent_violation' in loss_name:
+                        violation_loss += loss_value
 
-        if torch.isnan(boundary_loss):
-            value_loss = descent_loss
-        elif torch.isnan(descent_loss):
-            value_loss = boundary_loss
+            if torch.isnan(boundary_loss):
+                value_loss = descent_loss
+            elif torch.isnan(descent_loss):
+                value_loss = boundary_loss
+            else:
+                value_loss = boundary_loss + descent_loss
+
+            self.log("train/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                     logger=True)
+            self.log("train/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                     logger=True)
+            self.log("train/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                     logger=True)
+            return value_loss
         else:
-            value_loss = boundary_loss + descent_loss
-        # For the objectives, we can just sum them
-        # batch_dict = {"loss": total_loss, **component_losses}
-        total_loss = value_loss
-        policy_loss = torch.nn.MSELoss()(self.policy_net(x), control)
-        total_loss += self.policy_loss_weight * policy_loss
+            # For the objectives, we can just sum them
+            # batch_dict = {"loss": total_loss, **component_losses}
 
-        eps = 0.1
-        V, JV = self.V_with_jacobian(x)
+            # Update the CBF here
 
-        # No gradients passed through value network for the descent loss on the policy
-        U = self.policy_net(x)
-        V = V.detach()
-        JV = JV.detach()
-        (f, g) = self.dynamics_model(x.cpu().detach().numpy(), U.cpu().detach().numpy())
-        full_dyn = f.to(self.device) + torch.bmm(g.to(self.device), U.unsqueeze(2)).squeeze().to(self.device)
-        Lf_V = (JV * full_dyn).sum(axis=1)
-        descent_violation = F.relu(eps + Lf_V + self.cbf_lambda * V.squeeze())
-        descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
-        policy_loss += descent_loss_policy
 
-        total_loss += policy_loss
-        violation_loss += descent_violation.mean()
+            policy_loss = torch.nn.MSELoss()(self.policy_net(x), control)
+            total_loss = self.policy_loss_weight * policy_loss
 
-        self.log("train/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
-                 logger=True)
-        self.log("train/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
-                 logger=True)
-        self.log("train/CLBF_loss", value_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
-                 logger=True)
-        self.log("train/descent_loss", descent_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
-                 logger=True)
-        self.log("train/boundary_loss", boundary_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
-                 logger=True)
-        self.log("train/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True,
-                 prog_bar=True, logger=True)
-        self.log("train/violation_loss", violation_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
-                 logger=True)
+            eps = 0.1
+            V, JV = self.V_with_jacobian(x)
 
-        return total_loss
+            # No gradients passed through value network for the descent loss on the policy
+            U = self.policy_net(x)
+            V = V.detach()
+            JV = JV.detach()
+            (f, g) = self.dynamics_model(x.cpu().detach().numpy(), U.cpu().detach().numpy())
+            full_dyn = f.to(self.device) + torch.bmm(g.to(self.device), U.unsqueeze(2)).squeeze().to(self.device)
+            Lf_V = (JV * full_dyn).sum(axis=1)
+            descent_violation = F.relu(eps + Lf_V + self.cbf_lambda * V.squeeze())
+            descent_loss_policy = self.descent_loss_weight * descent_violation.mean()
+            policy_loss += descent_loss_policy
 
-    
+            total_loss += policy_loss
+            violation_loss = descent_violation.mean()
+
+            # self.log("train/train_loss", total_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+            #          logger=True)
+            self.log("train/policy_loss", policy_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                     logger=True)
+
+            self.log("train/descent_loss_policy", descent_loss_policy.cpu().detach().numpy().item(), on_step=True,
+                     prog_bar=True, logger=True)
+            self.log("train/violation_loss", violation_loss.cpu().detach().numpy().item(), on_step=True, prog_bar=True,
+                     logger=True)
+
+            return total_loss
+
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
         V_optimizer = Adam(self.V.parameters(), lr=1e-4)
         policy_optimizer = Adam(self.policy_net.parameters(), lr=1e-4)
         lr_scheduler = StepLR(V_optimizer, step_size=100, gamma=0.99)
         return [V_optimizer, policy_optimizer], [lr_scheduler]
-    
-        return optimizer
+
     
     def prepare_data(self):
         return self.datamodule.prepare_data()
