@@ -52,7 +52,7 @@ class NeuralCBFController(pl.LightningModule):
         self.safe_loss_weight = 2.0
         self.unsafe_loss_weight = 2.0
         self.descent_loss_weight = 4.0
-        self.descent_loss_weight_policy = 0.5
+        self.descent_loss_weight_policy = 2.0
         self.positive_value_loss_weight = 10.0
 
         self.system = system
