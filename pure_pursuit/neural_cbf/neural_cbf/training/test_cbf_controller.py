@@ -78,7 +78,9 @@ plot_y_index = 1
 #             print(xdot)
 #     return pd.DataFrame(results)
 
-
+def crash_check(x):
+    # Returns whether the car has crashed
+    pass
 
 def run(start_state, args, system, neural_controller, il_controller, dynamics, data,goal):
     # Simulate dynamics with both the purepursuit controller and the neuralnet controller
@@ -122,19 +124,24 @@ def run(start_state, args, system, neural_controller, il_controller, dynamics, d
     all_controls_nn = []
     dt = 0.01
     step = 0
+    control = np.array([0,0])
     while (np.linalg.norm(start_np[:2] - goal[:2]) > 0.1) and step < max_steps:
         try:
-            control = neural_controller.policy_net(start)
+            state = start_np.copy()
+            state[2] = control[0]
+            state[3] = control[1]
+            state = torch.tensor(state, dtype=torch.float32)
+            control = neural_controller.policy_net(state)
             control = control.cpu().detach().numpy()
         except:
             break
         all_controls_nn.append(control)
-        control = np.expand_dims(control, axis=0)
-        f, g = dynamics(np.expand_dims(start_np, axis=0), control)
+        control_ex = np.expand_dims(control, axis=0)
+        f, g = dynamics(np.expand_dims(start_np, axis=0), control_ex)
 
 
         # print(U.shape)
-        U = torch.tensor(control, dtype=torch.float32).unsqueeze(-1)
+        U = torch.tensor(control_ex, dtype=torch.float32).unsqueeze(-1)
         start_vec = torch.unsqueeze(start, dim=0) + dt * (f + torch.bmm(g, U).squeeze(-1))
         start = start_vec.squeeze()
         # print(start)
@@ -152,19 +159,24 @@ def run(start_state, args, system, neural_controller, il_controller, dynamics, d
     all_controls_il = []
     dt = 0.01
     step = 0
+    control = np.array([0, 0])
     while (np.linalg.norm(start_np[:2] - goal[:2]) > 0.1) and step < max_steps:
         try:
-            control = il_controller.policy_net(start)
+            state = start_np.copy()
+            state[2] = control[0]
+            state[3] = control[1]
+            state = torch.tensor(state, dtype=torch.float32)
+            control = il_controller.policy_net(state)
             control = control.cpu().detach().numpy()
         except:
             break
         all_controls_il.append(control)
-        control = np.expand_dims(control, axis=0)
-        f, g = dynamics(np.expand_dims(start_np, axis=0), control)
+        control_ex = np.expand_dims(control, axis=0)
+        f, g = dynamics(np.expand_dims(start_np, axis=0), control_ex)
 
 
         # print(U.shape)
-        U = torch.tensor(control, dtype=torch.float32).unsqueeze(-1)
+        U = torch.tensor(control_ex, dtype=torch.float32).unsqueeze(-1)
         start_vec = torch.unsqueeze(start, dim=0) + dt * (f + torch.bmm(g, U).squeeze(-1))
         start = start_vec.squeeze()
         # print(start)
@@ -218,7 +230,7 @@ def init(args):
     neural_controller = NeuralCBFController.load_from_checkpoint(dir_path, dynamics_model=dynamics,
                                                                  datamodule=datasource, system=system)
 
-    dir_path_il = "neural_cbf/training/checkpoints/" + args.version_il + "/model.ckpt"
+    dir_path_il = "neural_cbf/training/checkpoints/" + args.version_il + "/model-v5.ckpt"
     il_controller = ILController.load_from_checkpoint(dir_path_il, dynamics_model=dynamics,
                                                                  datamodule=datasource, system=system)
 
