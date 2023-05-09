@@ -24,7 +24,7 @@ class F110System:
         args['accel_gain'] = 0.0
         args = argparse.Namespace(**args)
 
-        filename = "scripts/raceline_centre_half.csv"
+        filename = "/home/adithyakvh/Courses/F1-tenth/ROS_Installations_F1_tenth/all_labs_ws/src/RL-CBF-F110th/pure_pursuit/scripts/raceline_centre_half.csv"
 
         positions = []
         with open(filename) as csv_file:

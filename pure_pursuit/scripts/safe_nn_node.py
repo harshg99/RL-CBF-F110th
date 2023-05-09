@@ -57,7 +57,7 @@ class NNController:
             dynamics = F110DynamicsModel(n_dims=5, n_controls=2)
             system = F110System(args)
             if self.args.il:
-                dir_path = "neural_cbf/training/checkpoints/" + args.version + "/model-v5.ckpt"
+                dir_path = "neural_cbf/training/checkpoints/" + args.version + "/model.ckpt"
                 self.controller = ILController.load_from_checkpoint(dir_path, dynamics_model=dynamics,
                                                                   datamodule=datasource, system=system)
             else:
@@ -136,9 +136,10 @@ class NNController:
         return control[0],control[1]
 
     def compute_control(self,state: np.ndarray):
-        control = self.controller.policy_net(state)
+        control = self.controller.policy_net(torch.tensor(state, dtype=torch.float32))
         control = control.cpu().detach().squeeze().numpy()
-        return control
+        print("shape", control.shape)
+        return control[0], control[1]
 
 class SafeNNControl(Node):
     """
@@ -159,6 +160,40 @@ class SafeNNControl(Node):
         self.controller = NNController(args)
         self.previous_control = np.array([0.0, 0.0])
         self.args = args
+
+        # self.declare_parameter('lookahead_distance', 1.75)
+        # self.declare_parameter('velocity', 3.2)
+        # self.declare_parameter('speed_lookahead_distance', 2.0)
+        # self.declare_parameter('brake_gain', 1.0)
+        # self.declare_parameter('wheel_base', 0.33)
+        # self.declare_parameter('visualize', False)
+        # self.declare_parameter('curvature_thresh', 0.1)
+        # self.declare_parameter('acceleration_lookahead_distance', 5.0)
+        # self.declare_parameter('accel_gain', 0.0)
+        
+        # # TODO: create ROS subscribers and publishers
+        # self.lookahead_distance = self.get_parameter("lookahead_distance").value
+        # self.velocity = self.get_parameter("velocity").value
+        # self.speed_lookahead_distance = self.get_parameter("speed_lookahead_distance").value
+        # self.brake_gain = self.get_parameter("brake_gain").value
+        # self.wheel_base = self.get_parameter("wheel_base").value
+        # self.visualize = self.get_parameter("visualize").value
+        # self.curvature_thresh = self.get_parameter("curvature_thresh").value
+        # self.acceleration_lookahead_distance = self.get_parameter("acceleration_lookahead_distance").value
+        # self.accel_gain = self.get_parameter("accel_gain").value
+
+        # self.pub_marker = self.create_publisher(MarkerArray, "marker_array", 10)
+        # #self.sub_pose = self.create_subscription(PoseStamped, "pf/viz/inferred_pose", self.pose_callback, 10)
+        # self.sub_pose = self.create_subscription(Odometry, "/ego_racecar/odom", self.pose_callback, 10)
+        # self.pub_drive = self.create_publisher(AckermannDriveStamped, "drive", 10)
+        
+        # args3['visualize'] = self.visualize
+        # args3['curvature_thresh'] = self.curvature_thresh
+        # args3['acceleration_lookahead_distance'] = self.acceleration_lookahead_distance
+        # args3['accel_gain'] = self.accel_gain
+        # args3 = argparse.Namespace(**args)
+
+
 
     # defines the controller for the
     def pose_callback(self, pose_msg):
@@ -182,11 +217,13 @@ class SafeNNControl(Node):
         yaw = euler[2]
         state = np.array([x, y, self.previous_control[-1] , self.previous_control[0], yaw]).reshape((1,5))
         velocity, steer = self.controller.compute_control(state)
+        # print("type", type(velocity))
+        # print("vec", velocity)
         self.previous_control = np.array([velocity, steer])
         drive_msg = AckermannDriveStamped()
         drive_msg.header.frame_id = 'base_link'
-        drive_msg.drive.speed = velocity
-        drive_msg.drive.steering_angle = steer
+        drive_msg.drive.speed = float(velocity)
+        drive_msg.drive.steering_angle = float(steer)
         self.pub_drive.publish(drive_msg)
         # TODO: publish drive message, don't forget to limit the steering angle.
 
@@ -198,13 +235,25 @@ def parse_args():
     parser.add_argument('--onnx_path', type=str, default='data/model.onnx', help='path to onnx model')
     parser.add_argument('--engine_path', type=str, default='data/model.trt', help='path to trt model')
     parser.add_argument('--fp16', action='store_true', help='inference with fp16')
+    parser.add_argument('--num_samples', type=int, default=1000000)
+    parser.add_argument('--bounds_lower', type=float, default=-14)
+    parser.add_argument('--bounds_upper', type=float, default=14)
+    parser.add_argument('--steering_max', type=float, default=0.50)
+    parser.add_argument('--margin', type=float, default=0.50)
+    parser.add_argument('--max_ttc', type=float, default=0.4)
+    parser.add_argument('--vel_lower', type=float, default=0.00)
+    parser.add_argument('--vel_upper', type=float, default=2.6)
+    parser.add_argument('--filename', type=str, default='waypoints.csv') 
+    parser.add_argument('--save_dir', type=str, default='trajectory_data/')
+
     args = parser.parse_args()
     return args
 
 def main(args=None):
     rclpy.init(args=args)
+    args2 = parse_args()
     print("PurePursuit Initialized")
-    pure_pursuit_node = SafeNNControl()
+    pure_pursuit_node = SafeNNControl(args2)
     rclpy.spin(pure_pursuit_node)
 
     pure_pursuit_node.destroy_node()
