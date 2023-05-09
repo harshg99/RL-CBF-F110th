@@ -14,7 +14,7 @@ class F110System:
         self.args = args_main
         args = dict()
         args['lookahead_distance'] = 1.25
-        args['velocity'] = 2.0
+        args['velocity'] = 2.5
         args['speed_lookahead_distance'] = 1.50
         args['brake_gain'] = 0.4
         args['wheel_base'] = 0.33
@@ -203,6 +203,10 @@ class F110System:
 
                 try:
                     v_con, theta_con = self.controller.compute_control(x,y,orientation)
+                    if v_con < 0:
+                        v_con = 1e-3
+                    elif v_con > self.args.vel_upper:
+                        v_con = self.args.vel_upper
                     safe = self.within_bounds(x, y) and self.ttc_bounds(x, y, yaw, vel)
 
                     if safe:
@@ -244,6 +248,7 @@ class F110System:
         safe_states = safe_data['states']
         safe_controls = safe_data['controls']
         unsafe_states = unsafe_data['states']
+        unsafe_controls = unsafe_data['controls']
         goal = metadata['goal']
         start_point = metadata['start_point']
 
@@ -279,10 +284,17 @@ class F110System:
 
         # Histogram of steering angles
         plt.figure()
-        plt.hist(safe_controls[:,-1], bins=100)
+        plt.hist(np.concatenate((safe_controls[:,-1], unsafe_controls[:,-1]), axis = 0), bins=100)
         plt.title('Steering angles')
         #plt.show()
         plt.savefig(self.args.save_dir + '/steering_angles.png')
+
+        # Histogram of velocities
+        plt.figure()
+        plt.hist(np.concatenate((safe_controls[:,0],unsafe_controls[:,0]), axis=0), bins=100)
+        plt.title('Velocities')
+        #plt.show()
+        plt.savefig(self.args.save_dir + '/velocities.png')
 
 
 
@@ -299,8 +311,8 @@ def parse_args(return_args=True):
     parser.add_argument('--steering_max', type=float, default=0.50)
     parser.add_argument('--margin', type=float, default=0.50)
     parser.add_argument('--max_ttc', type=float, default=0.4)
-    parser.add_argument('--vel_lower', type=float, default=0.0)
-    parser.add_argument('--vel_upper', type=float, default=2.5)
+    parser.add_argument('--vel_lower', type=float, default=0.00)
+    parser.add_argument('--vel_upper', type=float, default=2.6)
     parser.add_argument('--filename', type=str, default='waypoints.csv') 
     parser.add_argument('--save_dir', type=str, default='trajectory_data/')
     if return_args:

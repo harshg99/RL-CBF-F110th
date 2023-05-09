@@ -184,7 +184,10 @@ class F110DynamicsModel:
 
         #getting acelerations and steering velocities
         # clipping the velocity to be greater than 0
-        u_init[:,0] = np.clip(u_init[:,0],0.,None)
+        u_init[:,0] = np.clip(u_init[:,0],1e-3,None)
+
+        u_init[:, 1][u_init[:,1]<0] = np.clip(u_init[:, 1][u_init[:,1]<0], None, -1e-4)
+        u_init[:, 1][u_init[:,1]>=0] = np.clip(u_init[:, 1][u_init[:,1]>=0], 1e-4, None)
 
         accl, sv = self.pid(u_init[:,0], u_init[:,1], x[:,3], x[:,2],
          self.vehicle_params['sv_max'], self.vehicle_params['a_max'], 
