@@ -170,8 +170,8 @@ class F110DynamicsModel:
                     x4: velocity in x direction
                     x5: yaw angle
                 u (numpy.ndarray (n, 2)): control input vector (u1, u2)
-                    u1: steering angle of front wheels
-                    u2: velocity
+                    u1: velocity
+                    u2: steering
 
             Returns:
                 f (numpy.ndarray): (n,5) right hand side of differential equations
@@ -183,6 +183,9 @@ class F110DynamicsModel:
         n,control_dim = u_init.shape
 
         #getting acelerations and steering velocities
+        # clipping the velocity to be greater than 0
+        u_init[:,0] = np.clip(u_init[:,0],0.,None)
+
         accl, sv = self.pid(u_init[:,0], u_init[:,1], x[:,3], x[:,2],
          self.vehicle_params['sv_max'], self.vehicle_params['a_max'], 
          self.vehicle_params['v_max'], self.vehicle_params['v_min'])
@@ -209,8 +212,8 @@ class F110DynamicsModel:
         f = torch.tensor(f,dtype = torch.float32)
 
         g = np.zeros((n,state_dim,control_dim))
-        g[:,2,0] = u[:,0]/u_init[:,0]
-        g[:,3,1] = u[:,1]/u_init[:,1]
+        g[:,2,1] = u[:,0]/u_init[:,1]
+        g[:,3,0] = u[:,1]/u_init[:,0]
         
         # g = np.array([[0, 0, u[0]/u_init[0], 0, 0],
         #               [0, 0, 0, u[1]/u_init[1], 0]]).T
