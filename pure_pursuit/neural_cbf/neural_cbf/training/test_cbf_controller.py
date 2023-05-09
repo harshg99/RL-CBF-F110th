@@ -5,7 +5,7 @@ from neural_cbf.neural_cbf.datamodules import F110DataModule
 from argparse import ArgumentParser
 from scripts.create_data import F110System,parse_args
 
-from neural_cbf.neural_cbf.training import NeuralCBFController, F110DynamicsModel
+from neural_cbf.neural_cbf.training import NeuralCBFController, F110DynamicsModel,ILController
 
 import numpy as np
 from copy import deepcopy
@@ -80,7 +80,7 @@ plot_y_index = 1
 
 
 
-def run(start_state, args, system, nn_controller, dynamics, data,goal):
+def run(start_state, args, system, neural_controller, il_controller, dynamics, data,goal):
     # Simulate dynamics with both the purepursuit controller and the neuralnet controller
 
     # Simulating purepuruit controller
@@ -146,9 +146,38 @@ def run(start_state, args, system, nn_controller, dynamics, data,goal):
     all_states_nn = np.array(all_states_nn)
     all_controls_nn = np.array(all_controls_nn)
 
+    start = deepcopy(start_state)
+    all_states_il = [deepcopy(start.detach().numpy())]
+    start_np = start.detach().numpy()
+    all_controls_il = []
+    dt = 0.01
+    step = 0
+    while (np.linalg.norm(start_np[:2] - goal[:2]) > 0.1) and step < max_steps:
+        try:
+            control = il_controller.policy_net(start)
+            control = control.cpu().detach().numpy()
+        except:
+            break
+        all_controls_il.append(control)
+        control = np.expand_dims(control, axis=0)
+        f, g = dynamics(np.expand_dims(start_np, axis=0), control)
+
+
+        # print(U.shape)
+        U = torch.tensor(control, dtype=torch.float32).unsqueeze(-1)
+        start_vec = torch.unsqueeze(start, dim=0) + dt * (f + torch.bmm(g, U).squeeze(-1))
+        start = start_vec.squeeze()
+        # print(start)
+        all_states_il.append(start.detach().numpy())
+        start_np = start.detach().numpy()
+        step += 1
 
     actual_waypoints = system.controller.waypoints.copy()
     actual_waypoints = np.array(actual_waypoints)
+
+    # compare original trajectory with the simulated trajectory
+    all_states_il = np.array(all_states_il)
+    all_controls_il = np.array(all_controls_il)
 
     print(all_states_expert.shape)
     plt.plot(actual_waypoints[:,0], actual_waypoints[:,1], label = 'reference')
@@ -156,6 +185,9 @@ def run(start_state, args, system, nn_controller, dynamics, data,goal):
     plt.plot(all_states_expert[:,0], all_states_expert[:,1], label = 'PurePursuit')
     #plot goal points
     plt.plot(all_states_nn[:,0], all_states_nn[:,1], label = 'NeuralNet')
+
+    plt.plot(all_states_il[:,0], all_states_il[:,1], label = 'Imitation Learning')
+
     plt.plot(goal[0], goal[1], 'ro', label = 'goal')
     plt.plot(start_state[0], start_state[1], 'go', label = 'start')
     plt.legend()
@@ -186,16 +218,21 @@ def init(args):
     neural_controller = NeuralCBFController.load_from_checkpoint(dir_path, dynamics_model=dynamics,
                                                                  datamodule=datasource, system=system)
 
-    return dynamics, system, start_state, goal, neural_controller, datasource
+    dir_path_il = "neural_cbf/training/checkpoints/" + args.version_il + "/model.ckpt"
+    il_controller = ILController.load_from_checkpoint(dir_path_il, dynamics_model=dynamics,
+                                                                 datamodule=datasource, system=system)
+
+    return dynamics, system, start_state, goal, neural_controller,il_controller, datasource
 
 if __name__ == "__main__":
     parser  = parse_args(False)
     parser.add_argument('--goal_radius', type=float, default=0.4)
     parser.add_argument('--version', type=str, default='v0')
+    parser.add_argument('--version_il', type=str, default='v1')
 
     args = parser.parse_args()
-    dynamics, system, start_state, goal, neural_controller, data_module = init(args)
-    run(start_state, args, system, neural_controller, dynamics, data_module,goal)
+    dynamics, system, start_state, goal, neural_controller,il_controller, data_module = init(args)
+    run(start_state, args, system, neural_controller, il_controller, dynamics, data_module,goal)
 
 
 
