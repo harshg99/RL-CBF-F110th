@@ -48,7 +48,7 @@ class PurePursuit(Node):
         self.pub_drive = self.create_publisher(AckermannDriveStamped, "drive", 10)
         
         if filename is None:
-            filename = "/sim_ws/src/pure_pursuit/scripts/raceline_centre_half.csv"
+            filename = "/home/adithyakvh/Courses/F1-tenth/ROS_Installations_F1_tenth/all_labs_ws/src/RL-CBF-F110th/pure_pursuit/scripts/raceline_centre_half.csv"
     
         #load the csv file data and store the values in a numpy array
         args = dict()
