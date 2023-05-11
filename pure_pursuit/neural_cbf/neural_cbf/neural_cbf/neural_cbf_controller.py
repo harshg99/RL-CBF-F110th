@@ -43,7 +43,8 @@ class NeuralCBFController(pl.LightningModule):
         self.descent_loss_weight = 100 
         
         # TODO need to remove later
-        self.dynamic_system = system 
+        self.dynamic_system = system
+
     def descent_loss(
         self,
         x: torch.Tensor,
@@ -150,8 +151,8 @@ class NeuralCBFController(pl.LightningModule):
     def training_step(self, batch, batch_idx, optimizer_idx):
         """Conduct the training step for the given batch"""
         # Extract the input and masks from the batch
-        print(optimizer_idx)
-        x, goal_mask, safe_mask, unsafe_mask = batch
+        #print(optimizer_idx)
+        x, goal_mask, FDsafe_mask, unsafe_mask = batch
 
         # Compute the losses
         component_losses = {}
@@ -170,10 +171,17 @@ class NeuralCBFController(pl.LightningModule):
                 total_loss += loss_value
 
         #batch_dict = {"loss": total_loss, **component_losses}
-        policy_loss = torch.nn.MSELoss()(self.policy_net(x), self.dynamic_system.u_nominal(x))  
+        policy_loss = torch.nn.MSELoss()(self.policy_net(x), self.dynamic_system.u_nominal(x))
         total_loss += self.policy_loss_weight * policy_loss
+
         return total_loss
-    
+
+    # def validation_step(self, batch, batch_idx,optimizer_idx):
+    #     '''Conduct the validation step for the given batch'''
+    #     # Extract the input and masks from the batch
+    #     x, goal_mask, safe_mask, unsafe_mask,control = batch
+
+
     def configure_optimizers(self) -> List[Optimizer]:
         """Initialize Adam optimizer."""
         V_optimizer = Adam(self.V.parameters(), lr=1e-3)
@@ -190,8 +198,8 @@ class NeuralCBFController(pl.LightningModule):
     def train_dataloader(self):
         return self.datamodule.train_dataloader()
 
-    def estimate_violation(self, x, n_samples=100): 
-        batch_size = x.shape[0] 
+    def estimate_violation(self, x, n_samples=100):
+        batch_size = x.shape[0]
         n_controls = self.dynamics_model.n_controls
         n_dims = self.dynamics_model.n_dims
         upper_lim, lower_lim = self.dynamics_model.control_limits
@@ -199,7 +207,7 @@ class NeuralCBFController(pl.LightningModule):
         u_samples = u_samples*(upper_lim - lower_lim) + lower_lim
         V, JV = self.V_with_jacobian(x)
         f_dot = self.dynamics_model(x.repeat_interleave(n_samples, dim=0), u_samples).view(batch_size, n_samples, n_dims)
-        lie_derivatives = torch.bmm(f_dot,JV.unsqueeze(2)).squeeze() 
+        lie_derivatives = torch.bmm(f_dot,JV.unsqueeze(2)).squeeze()
         violation = (lie_derivatives + self.cbf_lambda*V).max(axis=1)[0]
-        return F.relu(violation) 
+        return F.relu(violation)
         

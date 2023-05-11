@@ -91,7 +91,7 @@ def run(start_state, args, system, neural_controller, il_controller, dynamics, d
     start_np = start.detach().numpy()
     all_controls_expert = []
     dt = 0.01
-    max_steps = 1200
+    max_steps = 1600
 
     step = 0
     while (np.linalg.norm(start_np[:2] - goal[:2]) > 0.1) and step < max_steps:
@@ -198,7 +198,7 @@ def run(start_state, args, system, neural_controller, il_controller, dynamics, d
     #plot goal points
     plt.plot(all_states_nn[:,0], all_states_nn[:,1], label = 'NeuralNet')
 
-    plt.plot(all_states_il[:,0], all_states_il[:,1], label = 'Imitation Learning')
+    # plt.plot(all_states_il[:,0], all_states_il[:,1], label = 'Imitation Learning')
 
     plt.plot(goal[0], goal[1], 'ro', label = 'goal')
     plt.plot(start_state[0], start_state[1], 'go', label = 'start')
@@ -230,7 +230,7 @@ def init(args):
     neural_controller = NeuralCBFController.load_from_checkpoint(dir_path, dynamics_model=dynamics,
                                                                  datamodule=datasource, system=system)
 
-    dir_path_il = "neural_cbf/training/checkpoints/" + args.version_il + "/model-v5.ckpt"
+    dir_path_il = "neural_cbf/training/checkpoints/" + args.version_il + "/model.ckpt"
     il_controller = ILController.load_from_checkpoint(dir_path_il, dynamics_model=dynamics,
                                                                  datamodule=datasource, system=system)
 

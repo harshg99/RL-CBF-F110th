@@ -18,7 +18,7 @@ class CBFVerificationExperiment():
     def __init__(
         self,
         domain: Optional[List[Tuple[float, float]]] = None,
-        n_grid: int = 100,
+        n_grid: int = 1000,
     ):
         """Initialize an experiment for validating the CBF over a given domain.
 
@@ -31,7 +31,7 @@ class CBFVerificationExperiment():
 
         # Default to plotting over [-1, 1] in all directions
         if domain is None:
-            domain = [(-2.0, 2.0), (-2.0, 2.0)]
+            domain = [(-14.0, -14.0), (14.0, 14.0)]
         self.domain = domain
 
         self.n_grid = n_grid
